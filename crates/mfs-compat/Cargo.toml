@@ -1,0 +1,58 @@
+[package]
+name = "mfs-compat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Compatibility adapters for memory-first-store."
+
+[lib]
+name = "mfs_compat"
+path = "src/lib.rs"
+
+[dependencies]
+mfs-core = { path = "../mfs-core", default-features = false }
+mfs-db = { path = "../mfs-db" }
+parking_lot.workspace = true
+hashbrown.workspace = true
+crossbeam-utils.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
+redb.workspace = true
+fjall.workspace = true
+
+[[example]]
+name = "object_store_wal"
+path = "../../examples/object_store_wal.rs"
+
+[[example]]
+name = "mfs_database"
+path = "../../examples/mfs_database.rs"
+
+[[example]]
+name = "schema_sqlite_flush"
+path = "../../examples/schema_sqlite_flush.rs"
+
+[[example]]
+name = "sqlite_vfs_page_adapter"
+path = "examples/sqlite_vfs_page_adapter.rs"
+
+[[bench]]
+name = "mfs_object_store"
+path = "../../benches/mfs/object_store.rs"
+harness = false
+
+[[bench]]
+name = "mfs_object_realistic"
+path = "../../benches/mfs/object_realistic.rs"
+harness = false
+
+[[bench]]
+name = "mfs_schema_store"
+path = "../../benches/mfs/schema_store.rs"
+harness = false
+
+[[bench]]
+name = "local_db_sqlite_kv"
+path = "../../benches/local_db/sqlite_kv.rs"
+harness = false

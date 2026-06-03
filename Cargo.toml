@@ -1,0 +1,70 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/mfs-core",
+    "crates/mfs-neural",
+    "crates/mfs-db",
+    "crates/mfs-compat",
+    "crates/memory-first-store",
+]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "High-throughput memory-first hot data store with idle write-behind flush hooks and crash-recoverable WAL."
+
+[workspace.dependencies]
+parking_lot = "0.12"
+hashbrown = { version = "0.17", default-features = false, features = [
+    "default-hasher",
+    "inline-more",
+] }
+crossbeam-utils = { version = "0.8", default-features = false }
+crossbeam-queue = { version = "0.3", default-features = false, features = [
+    "std",
+] }
+crc32c = "0.6"
+ahash = { version = "0.8", default-features = false, features = [
+    "std",
+] }
+seize = "0.5"
+serde_json = "1.0"
+criterion = { version = "0.8", default-features = false, features = [
+    "cargo_bench_support",
+    "rayon",
+    "async_futures",
+    "async_tokio",
+] }
+dashmap = "6"
+scc = "3"
+moka = { version = "0.12", features = ["sync"] }
+leapfrog = { version = "0.3", features = ["stable_alloc"] }
+papaya = "0.2"
+quick_cache = "0.6"
+foyer = "0.22"
+TinyUFO = "0.8"
+hdrhistogram = "7"
+base64 = "0.22"
+plotters = "0.3"
+rand = "0.10.1"
+rand_distr = "0.6.0"
+foyer-memory = "0.22"
+csv = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+futures = "0.3"
+lru = "0.18.0"
+rusqlite = { version = "0.40", features = ["bundled"] }
+redb = "4.1.0"
+fjall = { version = "3.1.5", default-features = false }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+
+[profile.bench]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+debug = false

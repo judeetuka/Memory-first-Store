@@ -1,0 +1,157 @@
+[package]
+name = "mfs-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core storage primitives for memory-first-store."
+
+[lib]
+name = "mfs_core"
+path = "src/lib.rs"
+
+[features]
+default = []
+ahash = ["dep:ahash"]
+
+[dependencies]
+parking_lot.workspace = true
+hashbrown.workspace = true
+crossbeam-utils.workspace = true
+crossbeam-queue.workspace = true
+crc32c.workspace = true
+seize.workspace = true
+ahash = { workspace = true, optional = true }
+
+[dev-dependencies]
+base64.workspace = true
+criterion.workspace = true
+csv.workspace = true
+dashmap.workspace = true
+foyer-memory.workspace = true
+hdrhistogram.workspace = true
+lru.workspace = true
+moka.workspace = true
+papaya.workspace = true
+plotters.workspace = true
+quick_cache.workspace = true
+rand.workspace = true
+rand_distr.workspace = true
+scc.workspace = true
+TinyUFO.workspace = true
+
+[[example]]
+name = "read_through_cache"
+path = "../../examples/read_through_cache.rs"
+
+[[example]]
+name = "wal_recovery"
+path = "../../examples/wal_recovery.rs"
+
+[[example]]
+name = "dense_counters"
+path = "../../examples/dense_counters.rs"
+
+[[bench]]
+name = "mfs_hot_path"
+path = "benches/hot_path.rs"
+harness = false
+
+[[bench]]
+name = "mfs_probe"
+path = "../../benches/mfs/probe.rs"
+harness = false
+
+[[bench]]
+name = "mfs_realistic"
+path = "../../benches/mfs/realistic.rs"
+harness = false
+
+[[bench]]
+name = "mfs_wal_async"
+path = "../../benches/mfs/wal_async.rs"
+harness = false
+
+[[bench]]
+name = "mfs_slot_writeback"
+path = "../../benches/mfs/slot_writeback.rs"
+harness = false
+
+[[bench]]
+name = "mfs_s3fifo_tuning"
+path = "../../benches/mfs/s3fifo_tuning.rs"
+harness = false
+
+[[bench]]
+name = "mfs_criterion"
+path = "../../benches/mfs/criterion_bench.rs"
+harness = false
+
+[[bench]]
+name = "dashmap_contention"
+path = "../../benches/dashmap/contention.rs"
+harness = false
+
+[[bench]]
+name = "moka_zipfian"
+path = "../../benches/moka/zipfian.rs"
+harness = false
+
+[[bench]]
+name = "papaya_latency"
+path = "../../benches/papaya/latency.rs"
+harness = false
+
+[[bench]]
+name = "papaya_single_thread"
+path = "../../benches/papaya/single_thread.rs"
+harness = false
+
+[[bench]]
+name = "scc_hash_map"
+path = "../../benches/scc/hash_map.rs"
+harness = false
+
+[[bench]]
+name = "scc_hash_index"
+path = "../../benches/scc/hash_index.rs"
+harness = false
+
+[[bench]]
+name = "scc_hash_cache"
+path = "../../benches/scc/hash_cache.rs"
+harness = false
+
+[[bench]]
+name = "scc_tree_index"
+path = "../../benches/scc/tree_index.rs"
+harness = false
+
+[[bench]]
+name = "quick_cache_benchmarks"
+path = "../../benches/quick_cache/benchmarks.rs"
+harness = false
+
+[[bench]]
+name = "tinyufo_bench_perf"
+path = "../../benches/tinyufo/bench_perf.rs"
+harness = false
+
+[[bench]]
+name = "tinyufo_bench_hit_ratio"
+path = "../../benches/tinyufo/bench_hit_ratio.rs"
+harness = false
+
+[[bench]]
+name = "foyer_bench_hit_ratio"
+path = "../../benches/foyer/bench_hit_ratio.rs"
+harness = false
+
+[[bench]]
+name = "foyer_bench_dynamic_dispatch"
+path = "../../benches/foyer/bench_dynamic_dispatch.rs"
+harness = false
+
+[[bench]]
+name = "foyer_memory_vs_mfs"
+path = "../../benches/foyer/memory_vs_mfs.rs"
+harness = false

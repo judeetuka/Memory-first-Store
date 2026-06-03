@@ -1,0 +1,21 @@
+[package]
+name = "memory-first-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+
+[lib]
+name = "memory_first_store"
+path = "src/lib.rs"
+
+[features]
+default = []
+ahash = ["mfs-core/ahash"]
+json = ["mfs-db/json"]
+
+[dependencies]
+mfs-core = { path = "../mfs-core", default-features = false }
+mfs-neural = { path = "../mfs-neural" }
+mfs-db = { path = "../mfs-db" }
+mfs-compat = { path = "../mfs-compat" }

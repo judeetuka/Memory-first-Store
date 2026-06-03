@@ -1,0 +1,42 @@
+[package]
+name = "mfs-db"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Database engine primitives for memory-first-store."
+
+[lib]
+name = "mfs_db"
+path = "src/lib.rs"
+
+[features]
+default = []
+json = ["dep:serde_json"]
+
+[dependencies]
+mfs-core = { path = "../mfs-core", default-features = false }
+parking_lot.workspace = true
+crossbeam-utils.workspace = true
+crc32c.workspace = true
+serde_json = { workspace = true, optional = true }
+
+[[example]]
+name = "nosql_raw_kv"
+path = "../../examples/nosql_raw_kv.rs"
+
+[[example]]
+name = "nosql_schema_mode"
+path = "../../examples/nosql_schema_mode.rs"
+
+[[example]]
+name = "nosql_wal_recovery"
+path = "../../examples/nosql_wal_recovery.rs"
+
+[[example]]
+name = "nosql_checkpoint_recovery"
+path = "../../examples/nosql_checkpoint_recovery.rs"
+
+[[bench]]
+name = "mfs_nosql_engine"
+path = "../../benches/mfs/nosql_engine.rs"
+harness = false

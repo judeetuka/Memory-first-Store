@@ -1,0 +1,36 @@
+[package]
+name = "mfs-neural"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dense numeric storage primitives for memory-first-store."
+
+[lib]
+name = "mfs_neural"
+path = "src/lib.rs"
+
+[dependencies]
+mfs-core = { path = "../mfs-core" }
+parking_lot.workspace = true
+crossbeam-utils.workspace = true
+crossbeam-queue.workspace = true
+
+[dev-dependencies]
+dashmap.workspace = true
+hdrhistogram.workspace = true
+plotters.workspace = true
+
+[[bench]]
+name = "mfs_queued_write"
+path = "../../benches/mfs/queued_write.rs"
+harness = false
+
+[[bench]]
+name = "mfs_neural_hot_path"
+path = "../../benches/mfs/hot_path.rs"
+harness = false
+
+[[bench]]
+name = "dense_dashmap_contention"
+path = "../../benches/dashmap/dense_contention.rs"
+harness = false

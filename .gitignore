@@ -1,0 +1,19 @@
+/target
+**/target/
+# Third-party source we read for inspiration but do not redistribute.
+/reference/
+/references/
+**/*.rs.bk
+Cargo.lock
+!examples/sqlite_vfs/Cargo.lock
+*.swp
+*.swo
+.DS_Store
+# Generated bench artifacts kept in benches/<competitor>/ for IDE preview.
+benches/*/charts/
+benches/*/charts-beelink/
+benches/*/*.hist
+crates/*/benches/*/charts/
+crates/*/benches/*/*.hist
+*.hist
+*.pdf
