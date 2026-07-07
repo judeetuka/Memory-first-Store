@@ -31,6 +31,7 @@
 //! caller can express the read as a closure scoped to the read guard.
 
 mod arch;
+#[cfg(feature = "experimental")]
 pub mod atomic_writeback;
 pub mod bounded_reclaim;
 pub mod concurrent_map;
@@ -40,6 +41,7 @@ pub mod inline_map;
 pub mod lockfree;
 pub mod partitioned_lockfree;
 pub mod s3fifo;
+#[cfg(feature = "experimental")]
 pub mod slot_writeback;
 pub mod tiny_lfu;
 pub mod writeback;

@@ -12,6 +12,7 @@ path = "src/lib.rs"
 [features]
 default = []
 ahash = ["dep:ahash"]
+experimental = []
 
 [dependencies]
 parking_lot.workspace = true

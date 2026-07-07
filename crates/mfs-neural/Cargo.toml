@@ -15,6 +15,9 @@ parking_lot.workspace = true
 crossbeam-utils.workspace = true
 crossbeam-queue.workspace = true
 
+[features]
+experimental = []
+
 [dev-dependencies]
 dashmap.workspace = true
 hdrhistogram.workspace = true
