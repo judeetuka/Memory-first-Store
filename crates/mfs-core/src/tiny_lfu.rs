@@ -5,7 +5,7 @@
 //! 8-bit counter path without a doorkeeper; alternate layouts are opt-in for
 //! S3FIFO admission experiments.
 
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 const DEPTH: usize = 4;
 
@@ -72,6 +72,20 @@ impl TinyLfu {
                 .max(sample_size_floor),
             TinyLfuCounterKind::U8,
             true,
+        )
+    }
+
+    pub fn with_two_counter_decay(capacity: usize, min_width: usize, sample_size_floor: usize) -> Self {
+        Self::with_options(
+            capacity,
+            min_width,
+            capacity
+                .max(1)
+                .saturating_mul(8)
+                .max(64)
+                .max(sample_size_floor),
+            TinyLfuCounterKind::TwoCounter,
+            false,
         )
     }
 
@@ -180,11 +194,13 @@ impl TinyLfu {
 pub(crate) enum TinyLfuCounterKind {
     U8,
     Packed4Bit,
+    TwoCounter,
 }
 
 enum TinyLfuCounters {
     U8(Box<[AtomicU8]>),
     Packed4Bit(Packed4BitCounters),
+    TwoCounter(DualSketchCounters),
 }
 
 impl TinyLfuCounters {
@@ -197,6 +213,7 @@ impl TinyLfuCounters {
                     .into_boxed_slice(),
             ),
             TinyLfuCounterKind::Packed4Bit => Self::Packed4Bit(Packed4BitCounters::new(len)),
+            TinyLfuCounterKind::TwoCounter => Self::TwoCounter(DualSketchCounters::new(len)),
         }
     }
 
@@ -205,6 +222,7 @@ impl TinyLfuCounters {
         match self {
             Self::U8(_) => TinyLfuCounterKind::U8,
             Self::Packed4Bit(_) => TinyLfuCounterKind::Packed4Bit,
+            Self::TwoCounter(_) => TinyLfuCounterKind::TwoCounter,
         }
     }
 
@@ -212,6 +230,7 @@ impl TinyLfuCounters {
         match self {
             Self::U8(counters) => counters[index].load(Ordering::Relaxed),
             Self::Packed4Bit(counters) => counters.load(index),
+            Self::TwoCounter(counters) => counters.load(index),
         }
     }
 
@@ -219,6 +238,7 @@ impl TinyLfuCounters {
         match self {
             Self::U8(counters) => saturating_increment(&counters[index]),
             Self::Packed4Bit(counters) => counters.saturating_increment(index),
+            Self::TwoCounter(counters) => counters.saturating_increment(index),
         }
     }
 
@@ -234,6 +254,7 @@ impl TinyLfuCounters {
                 }
             }
             Self::Packed4Bit(counters) => counters.age(),
+            Self::TwoCounter(counters) => counters.age(),
         }
     }
 }
@@ -285,6 +306,46 @@ impl Packed4BitCounters {
                 Some(low | high)
             })
             .ok();
+        }
+    }
+}
+
+struct DualSketchCounters {
+    a: Packed4BitCounters,
+    b: Packed4BitCounters,
+    active_is_a: AtomicBool,
+}
+
+impl DualSketchCounters {
+    fn new(counter_len: usize) -> Self {
+        Self {
+            a: Packed4BitCounters::new(counter_len),
+            b: Packed4BitCounters::new(counter_len),
+            active_is_a: AtomicBool::new(true),
+        }
+    }
+
+    fn load(&self, index: usize) -> u8 {
+        let a_val = self.a.load(index);
+        let b_val = self.b.load(index);
+        a_val.max(b_val)
+    }
+
+    fn saturating_increment(&self, index: usize) {
+        if self.active_is_a.load(Ordering::Relaxed) {
+            self.a.saturating_increment(index);
+        } else {
+            self.b.saturating_increment(index);
+        }
+    }
+
+    fn age(&self) {
+        if self.active_is_a.load(Ordering::Relaxed) {
+            self.b.age();
+            self.active_is_a.store(false, Ordering::Relaxed);
+        } else {
+            self.a.age();
+            self.active_is_a.store(true, Ordering::Relaxed);
         }
     }
 }
@@ -460,5 +521,56 @@ mod tests {
         sketch.age();
         assert!(!sketch.doorkeeper_contains_for_test(hash));
         assert_eq!(sketch.increment(hash), 0);
+    }
+
+    #[test]
+    fn dual_sketch_swap_preserves_recent_frequency() {
+        let counters = DualSketchCounters::new(2);
+        counters.a.saturating_increment(0);
+        counters.a.saturating_increment(0);
+        counters.a.saturating_increment(0);
+
+        assert_eq!(counters.load(0), 3);
+
+        counters.age();
+
+        assert_eq!(counters.load(0), 3);
+    }
+
+    #[test]
+    fn dual_sketch_age_clears_standby() {
+        let counters = DualSketchCounters::new(2);
+
+        counters.saturating_increment(0);
+        counters.saturating_increment(0);
+        counters.saturating_increment(0);
+
+        assert_eq!(counters.load(0), 3);
+
+        counters.age();
+
+        assert_eq!(counters.load(0), 3);
+
+        counters.saturating_increment(0);
+        assert_eq!(counters.load(0), 3);
+    }
+
+    #[test]
+    fn dual_sketch_independent_counters() {
+        let counters = DualSketchCounters::new(4);
+
+        counters.saturating_increment(0);
+        counters.saturating_increment(0);
+        counters.saturating_increment(1);
+
+        assert_eq!(counters.load(0), 2);
+        assert_eq!(counters.load(1), 1);
+        assert_eq!(counters.load(2), 0);
+
+        counters.age();
+
+        assert_eq!(counters.load(0), 2);
+        assert_eq!(counters.load(1), 1);
+        assert_eq!(counters.load(2), 0);
     }
 }

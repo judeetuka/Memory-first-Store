@@ -36,7 +36,7 @@ const WORKLOADS: [Workload; 3] = [
     },
 ];
 
-const VARIANTS: [Variant; 17] = [
+const VARIANTS: [Variant; 18] = [
     Variant::new("default"),
     Variant::new("single_shard").with_shards(1),
     Variant::new("threshold2").with_small_to_main_threshold(2),
@@ -96,6 +96,14 @@ const VARIANTS: [Variant; 17] = [
         .with_ghost_ratio_percent(25)
         .with_admission_filter(true)
         .with_admission_experiment(S3FifoAdmissionExperiment::Doorkeeper {
+            min_width: 4096,
+            sample_size_floor: 4096,
+        }),
+    Variant::new("exp_adm_two_counter_ghost25")
+        .with_shards(1)
+        .with_ghost_ratio_percent(25)
+        .with_admission_filter(true)
+        .with_admission_experiment(S3FifoAdmissionExperiment::TwoCounterDecay {
             min_width: 4096,
             sample_size_floor: 4096,
         }),

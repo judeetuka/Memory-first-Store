@@ -717,6 +717,10 @@ fn build_admission_sketch(
             min_width,
             sample_size_floor,
         }) => TinyLfu::with_doorkeeper(capacity, min_width, sample_size_floor),
+        Some(S3FifoAdmissionExperiment::TwoCounterDecay {
+            min_width,
+            sample_size_floor,
+        }) => TinyLfu::with_two_counter_decay(capacity, min_width, sample_size_floor),
         Some(S3FifoAdmissionExperiment::CapacityGate { .. }) | None => {
             TinyLfu::with_capacity(capacity)
         }
@@ -873,6 +877,10 @@ pub enum S3FifoAdmissionExperiment {
         min_width: usize,
         sample_size_floor: usize,
     },
+    TwoCounterDecay {
+        min_width: usize,
+        sample_size_floor: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1006,6 +1014,20 @@ impl S3FifoConfig {
             min_width,
             sample_size_floor,
         });
+        self
+    }
+
+    pub fn with_experimental_two_counter_decay(
+        mut self,
+        min_width: usize,
+        sample_size_floor: usize,
+    ) -> Self {
+        self.admission_enabled = true;
+        self.admission_experiment =
+            Some(S3FifoAdmissionExperiment::TwoCounterDecay {
+                min_width,
+                sample_size_floor,
+            });
         self
     }
 }
