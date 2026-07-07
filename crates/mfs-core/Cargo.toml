@@ -82,6 +82,11 @@ path = "../../benches/mfs/s3fifo_tuning.rs"
 harness = false
 
 [[bench]]
+name = "mfs_s3fifo_contention"
+path = "../../benches/mfs/s3fifo_contention.rs"
+harness = false
+
+[[bench]]
 name = "mfs_criterion"
 path = "../../benches/mfs/criterion_bench.rs"
 harness = false

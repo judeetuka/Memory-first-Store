@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 const MAX_REF: u8 = 2;
 const MAX_FREQUENCY: u8 = 15;
 const DEFAULT_HOT_RATIO_PERCENT: usize = 90;
-const DEFAULT_GHOST_RATIO_PERCENT: usize = 50;
+const DEFAULT_GHOST_RATIO_PERCENT: usize = 25;
 const DEFAULT_SMALL_TO_MAIN_THRESHOLD: u8 = 1;
 const MIN_SHARD_CAPACITY: usize = 32;
 const FREQUENCY_DEPTH: usize = 4;
@@ -1128,7 +1128,7 @@ where
 
 fn default_shards() -> usize {
     std::thread::available_parallelism()
-        .map(|n| n.get() * 2)
+        .map(|n| n.get() * 4)
         .unwrap_or(16)
         .next_power_of_two()
 }
