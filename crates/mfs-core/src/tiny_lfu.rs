@@ -75,7 +75,11 @@ impl TinyLfu {
         )
     }
 
-    pub fn with_two_counter_decay(capacity: usize, min_width: usize, sample_size_floor: usize) -> Self {
+    pub fn with_two_counter_decay(
+        capacity: usize,
+        min_width: usize,
+        sample_size_floor: usize,
+    ) -> Self {
         Self::with_options(
             capacity,
             min_width,

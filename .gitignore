@@ -5,7 +5,6 @@
 /references/
 **/*.rs.bk
 Cargo.lock
-!examples/sqlite_vfs/Cargo.lock
 *.swp
 *.swo
 .DS_Store

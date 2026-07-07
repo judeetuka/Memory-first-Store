@@ -4,8 +4,8 @@ use hdrhistogram::serialization::{Serializer, V2DeflateSerializer};
 use hdrhistogram::{Histogram, SyncHistogram};
 use rand::prelude::*;
 use std::fs::File;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Barrier;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Instant;
 
@@ -44,8 +44,7 @@ fn main() {
 
     // ── mfs_s3fifo ────────────────────────────────────────────────
     let (mfs_stats, mfs_hist) = {
-        let cache =
-            mfs_core::s3fifo::S3FifoCache::<u64, ()>::with_capacity(capacity);
+        let cache = mfs_core::s3fifo::S3FifoCache::<u64, ()>::with_capacity(capacity);
         for i in 0..pre_populate as u64 {
             cache.insert(i, ());
         }
@@ -176,8 +175,7 @@ where
     C: ContentionCache + Sync,
 {
     let stats = AggregatedStats::default();
-    let mut sync_hist =
-        SyncHistogram::<u64>::from(Histogram::new(2).unwrap());
+    let mut sync_hist = SyncHistogram::<u64>::from(Histogram::new(2).unwrap());
     let barrier = Barrier::new(threads);
 
     let before = Instant::now();
@@ -192,9 +190,7 @@ where
             let mut seed = fast_seed(thread_idx);
             s.spawn(move || {
                 let mut rng = rand::rng();
-                let zipf =
-                    rand_distr::Zipf::new(key_support as f64, zipf_alpha)
-                        .unwrap();
+                let zipf = rand_distr::Zipf::new(key_support as f64, zipf_alpha).unwrap();
                 barrier.wait();
 
                 let mut local_reads = 0u64;
@@ -208,33 +204,21 @@ where
                     if is_read {
                         local_reads += 1;
                         let sample = op_idx & 1023 == 0;
-                        let start = if sample {
-                            Some(Instant::now())
-                        } else {
-                            None
-                        };
+                        let start = if sample { Some(Instant::now()) } else { None };
                         let hit = cache.cache_read(&key);
                         if hit.is_none() {
                             local_misses += 1;
                         }
                         if let Some(t0) = start {
-                            recorder
-                                .record(t0.elapsed().as_nanos() as u64)
-                                .ok();
+                            recorder.record(t0.elapsed().as_nanos() as u64).ok();
                         }
                     } else {
                         local_writes += 1;
                         let sample = op_idx & 1023 == 0;
-                        let start = if sample {
-                            Some(Instant::now())
-                        } else {
-                            None
-                        };
+                        let start = if sample { Some(Instant::now()) } else { None };
                         cache.cache_write(key, ());
                         if let Some(t0) = start {
-                            recorder
-                                .record(t0.elapsed().as_nanos() as u64)
-                                .ok();
+                            recorder.record(t0.elapsed().as_nanos() as u64).ok();
                         }
                     }
                 }
@@ -244,9 +228,8 @@ where
                 misses.fetch_add(local_misses, Ordering::Relaxed);
 
                 let elapsed = before.elapsed();
-                let mops = (local_reads + local_writes) as f64
-                    / elapsed.as_secs_f64()
-                    / 1_000_000.0;
+                let mops =
+                    (local_reads + local_writes) as f64 / elapsed.as_secs_f64() / 1_000_000.0;
                 println!(
                     "  {label:>14} thread={thread_idx:>2}  \
                      {mops:>8.2} M ops/s  \

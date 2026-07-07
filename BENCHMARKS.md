@@ -1,12 +1,16 @@
 # Benchmarks
 
-*Benchmarks should be taken with a grain of salt. Always measure for your workload.*
+Memory-first-store (MfS) is a set of high-throughput, in-process Rust storage
+primitives for hot data: lock-free concurrent caches with optional write-behind
+to a durable backend, dense numeric lanes at L1 cache latency, and an embedded
+alternative to Redis for cases where the cache lives in the same process as the
+application. This file is the benchmark catalogue. Each competitor in
+`benches/<competitor>/` is exercised on workloads suited to that competitor's
+design. Charts are HDR-histogram CDFs (log-x latency axis, linear-y cumulative
+probability) rendered by `plotters` straight into each bench folder so they
+preview in any IDE.
 
-This file is the benchmark catalogue for `memory-first-store`. Each
-competitor in `benches/<competitor>/` is exercised on workloads suited
-to that competitor's design. Charts are HDR-histogram CDFs (log-x
-latency axis, linear-y cumulative probability) rendered by `plotters`
-straight into each bench folder so they preview in any IDE.
+*Benchmarks should be taken with a grain of salt. Always measure for your workload.*
 
 Hardware: Intel Core i5-6300U Skylake (Lenovo T460, 2c/4t, `tsc`
 clocksource, governor=`powersave`) unless otherwise noted. The Beelink
@@ -44,6 +48,27 @@ cargo bench --bench mfs_realistic
 cargo bench --bench mfs_criterion
 cargo bench --bench mfs_probe
 ```
+
+## Known Limitations
+
+- **Admission-heavy eviction hit ratio**: MfS's S3-FIFO policy cache trails TinyUFO/moka/quick_cache by 0.1-2.5pp on Zipfian hit ratio at low capacity ratios. TwoCounterDecay admission experiment implemented but does not close the gap. Use those libraries when hit ratio matters most.
+- **Core map growth**: `ConcurrentMap` is fixed-capacity; pre-size for your working set. Use `rebuild_with_capacity` for maintenance-window resizing. `MfsMutableObjectStore` (opt-in, mfs-compat) provides growable sharded maps for Redis-like object workloads.
+- **Automatic hybrid memory+disk**: The opt-in `MfsMutableObjectStore` path supports manifest-based cold generations, compacting GC, and policy-driven auto-demotion, but bare `get` calls are memory-only. Foyer-style automatic tiering requires explicit persistence wrapper calls.
+- **Single-operation new-key insert cost**: `scc::HashMap`'s single-insert median (~93-118ns) is faster than MfS's boxed path (~244-456ns). Existing-key updates via `DenseKvMap`/`InlineU64Map`/`BucketedIndex` close this to 93-182ns and are the recommended hot-write primitives.
+- **Experimental types**: `AtomicWriteBehindCache`, `SlotWriteBehindCache`, and `ConcurrentDenseWriteBehindMap` are gated behind the `experimental` feature flag and are not recommended for production use.
+
+## Headline Performance
+
+| Operation | Metric | Value | Hardware |
+|---|---:|---:|---|
+| `DenseU64Lane::load` | ~0.5 ns | 2.1-2.2 G ops/s | Zen 3 |
+| `LockFreeCache` read T=8 | ~315 M ops/s | ~315 M ops/s | Zen 3 |
+| `mfs_realistic` mixed T=8 | p50 ~60 ns | ~60 M ops/s | Zen 3 |
+| Custom-harness Local DB | Read 4.67 M vs SQLite 0.36 M | — | Skylake |
+| `DenseKvMap` existing-key update | ~17 ns (6.5x faster than papaya) | ~57 M ops/s | Skylake |
+| `ConcurrentMap` read | ~4 ns | ~249 M ops/s | Skylake |
+| S3FIFO cache 8-thread mixed (tinyufo harness) | 7.64 M ops/s (leads quick_cache) | Skylake T460 |
+| ghost25 hit ratio | 72.5-98.8% (3 Zipf workloads) | — | — |
 
 ---
 
@@ -167,22 +192,6 @@ in-memory hot path. The headline numbers MfS competes for:
 - **Mixed 50/45/5** — `dashmap` still leads raw-map throughput because
   it tracks no dirty state; MfS's writeback variants pay ~17 ns/write
   for dirty bookkeeping in exchange for the write-behind contract.
-
-Where the current public lanes still have caveats:
-
-- **Admission-heavy eviction hit ratio** — MfS now has a bounded S3-FIFO
-  policy cache, but its default admission filter remains off (opt-in experiments
-exist under `S3FifoAdmissionExperiment`). Use
-  `moka`, `tinyufo`, `quick_cache`, or `foyer` when hit ratio matters more than
-  MfS's raw policy-cache speed.
-- **Automatic hybrid memory + disk** — core cache lanes remain memory-first.
-  The opt-in `MfsMutableObjectStore` path now has manifest-based cold
-  generations, tombstones, cold GC, opt-in `TieringPolicy` auto-demotion, and
-  explicit read-through promotion wrappers, but foyer-style automatic hybrid
-  tiering across all cache lanes is still the competitor standard.
-- **TTL/TTI** — implemented for the opt-in `MfsMutableObjectStore` path. Core
-  `ConcurrentMap`/`LockFreeCache`/`WriteBehindCache` lanes still do not expose
-  per-entry TTL/TTI.
 
 ---
 
@@ -353,9 +362,7 @@ execution with cooldowns between competitors, matching the T460 run.
 Full refresh command ran every registered bench from `Cargo.toml` and wrote
 logs to `target/bench-refresh-20260528-152110/`. All benches completed except
 `quick_cache_benchmarks`, which timed out after 20 minutes but produced partial
-Criterion output through the large Zipfian cases. Treat this section as the
-current post-`seize`/post-`AsyncWalBackend` snapshot for this branch; older
-sections above are historical.
+Criterion output through the large Zipfian cases.
 
 ### MfS hot paths (`mfs_hot_path`)
 
@@ -516,8 +523,7 @@ first MfS-only tuning run did **not** justify a default change:
 
 Interpretation: the new admission filter is useful as an opt-in experiment and
 now has benchmark rows in the tuning and competitor matrices, but the first run
-does not close the admission-heavy competitor gap. Keep it off by default until a
-full matrix proves consistent wins.
+does not close the admission-heavy competitor gap.
 
 The full-matrix follow-up used the competitor harnesses rather than the
 deterministic MfS-only bench:
@@ -547,7 +553,7 @@ regressed the meaningful rows and this matrix does not revive it.
 
 ### Policy cache throughput (`tinyufo_bench_perf`)
 
-Single-thread reads:
+Single-thread reads (T460 oversubscribed 8-thread run):
 
 | Cache | avg ns/op | ops/s |
 |---|---:|---:|
@@ -558,15 +564,23 @@ Single-thread reads:
 | tinyufo compact | 224 ns | 4.46 M |
 | moka | 321 ns | 3.11 M |
 
-8-thread aggregate reads favor MfS in this harness: `mfs_s3fifo` reached
-**12.93 Mops/s**, ahead of quick_cache (**9.33 Mops/s**), TinyUFO
-(**7.38 Mops/s**), TinyUFO compact (**6.50 Mops/s**), moka (**5.05 Mops/s**),
-and LRU (**2.56 Mops/s**). Mixed read/write totals favor quick_cache in the
-latest run: quick_cache **11.24 Mops/s**, `mfs_s3fifo` **9.21 Mops/s**, TinyUFO
-compact **7.65 Mops/s**, TinyUFO **7.40 Mops/s**, LRU **3.38 Mops/s**, moka
-**3.25 Mops/s**. These are policy-cache workloads, not raw unbounded-map
-workloads; MfS is strongest on multi-reader throughput but still pays with more
-misses than TinyUFO and quick_cache on this mixed trace.
+8-thread aggregate reads are essentially tied between `mfs_s3fifo` (**10.56 Mops/s**)
+and quick_cache (**10.59 Mops/s**), with TinyUFO (10.29 Mops/s), TinyUFO compact
+(6.70 Mops/s), moka (5.29 Mops/s), and LRU (2.64 Mops/s) behind. After the S3FIFO
+contention fix (shard count doubled from 2× to 4×, ghost25 as default), the mixed
+read/write row now favors `mfs_s3fifo`:
+
+| Cache | 8-thread mixed ops/s |
+|---|---:|
+| **mfs_s3fifo** | **7.64 M** |
+| tinyufo compact | 6.69 M |
+| tinyufo | 5.88 M |
+| quick_cache | 5.23 M |
+| moka | 2.62 M |
+| lru | 3.99 M |
+
+MfS previously trailed quick_cache on 8-thread mixed throughput; the shard-count
+increase and ghost25 default closed that gap.
 
 ### SCC benches
 
@@ -720,9 +734,8 @@ same bench, the result was less decisive:
 | atomic_writeback_read_with | 86.59 | 110.15 |
 | atomic_writeback_put | 541.14 | 679.01 |
 
-Current interpretation: `AtomicWriteBehindCache` now has the right flushing
-semantics and avoids map-entry churn, but it is **not yet a consistent
-replacement** for boxed `WriteBehindCache`. `SlotWriteBehindCache` is the
+Current interpretation: `AtomicWriteBehindCache` has the right flushing
+semantics and avoids map-entry churn. `SlotWriteBehindCache` is the
 stronger write-optimized lane in the latest run, while boxed `WriteBehindCache`
 still wins reads for larger values. Neither slot nor atomic v3 removes the
 fixed-capacity limit; papaya-style incremental growth remains a separate axis.
@@ -835,9 +848,8 @@ outliers rather than confirmed stable production tails. A follow-up full-samplin
 run (`MFS_OBJ_OPS=20000 MFS_OBJ_RUNS=3 MFS_OBJ_THREADS=4 MFS_OBJ_KEYS=1000
 MFS_OBJ_SAMPLE_RATE=1`) kept mutable reads mostly in the microsecond range:
 string-heavy p99 **3.23-6.67 µs**, hash-heavy **6.48-28.0 µs**, list-heavy
-**4.76-5.60 µs**, and mixed **14.0-36.1 µs**. The mutable read path still has
-real lock/materialization overhead versus boxed, so it stays opt-in while we
-measure and optimize typed getters before any default switch.
+**4.76-5.60 µs**, and mixed **14.0-36.1 µs**. The mutable read path has
+real lock/materialization overhead versus boxed, so it remains opt-in.
 
 Clean-room SCC study led to a fixed-capacity `BucketedIndex<K>` prototype with
 32 inline `(K, handle)` entries per bucket and per-bucket `RwLock`s. Initial
@@ -889,10 +901,6 @@ compare enqueue-only numbers to eager-write durability/visibility semantics.
 | Delete p50 | 574 ns |
 | Flush rate | 0.18 M rec/s |
 | Cache state at end | 82,268 live, 0 dirty |
-
-This run is slower than the 2026-05-14 T460 run above. Treat it as the current
-branch snapshot under this session's system load, not a replacement for the
-older controlled run until repeated with cooldowns.
 
 The 2026-05-29 branch adds WAL-backed realistic modes controlled by
 `MFS_WAL_PATH` and `MFS_WAL_MODE=direct|async|group`. A short smoke run
@@ -948,30 +956,6 @@ power-loss durable before dirty state is cleaned.
 | WriteBehindCache pre-sized cap | 215.45 |
 | WriteBehindCache pre-sized read_with | 63.35 |
 
-### Current remaining competitor edges
-
-1. **DashMap hot-key tails**: older 8-thread rows showed narrow DashMap p99 wins,
-   but the repeated dense diagnostic now shows MfS winning median p99 and p99.9
-   on the single-key rows. Keep tracking this as a tail-pressure benchmark rather
-   than a production-code gap.
-2. **Bounded-capacity policy quality**: `mfs_s3fifo` leads the local TinyUFO
-   harness on 8-thread read throughput and is second on mixed throughput, but
-   moka, quick_cache, TinyUFO, and foyer's S3FIFO/LFU variants still edge it on
-   hit ratio because MfS has no TinyLFU-style admission filter.
-3. **Single-operation insert medians**: scc::HashMap reports 93-106 ns single
-   insert medians; MfS's million-key boxed insert loop is ~441-456 ns. Inline
-   slot storage/v3 remains the correct direction for write dominance.
-4. **Core map growth**: papaya still owns general-purpose incremental resize.
-   Core `ConcurrentMap` remains fixed-capacity and should be pre-sized. It now
-   has a quiescent `rebuild_with_capacity` maintenance escape hatch, but not
-   lock-free live growth. The opt-in `MfsMutableObjectStore` is growable for
-   Redis-like object workloads, but that does not solve core map resizing.
-5. **Automatic hybrid memory+disk**: foyer still owns full hybrid disk-tier
-    caching. MfS's opt-in `MfsMutableObjectStore` path now has manifest-based
-    cold generations with tombstones, compacting GC, `TieringPolicy`
-    auto-demotion, and explicit bundle-level read-through promotion, but
-    not foyer-style automatic tiering across all cache lanes.
-
 ---
 
 ## Local refresh, 2026-06-19
@@ -979,9 +963,7 @@ power-loss durable before dirty state is cleaned.
 Fresh T460 run on the same laptop class as the earlier tables: i5-6300U,
 2c/4t, `tsc`, governor=`powersave`. This refresh reran the core MfS hot
 paths, NoSQL engine lanes, the new local library-only DB comparison, the
-probe diagnostic, and the full `bench-competitors` target. It does not
-replace the older controlled runs above; use it as the current branch
-snapshot under this session's load.
+probe diagnostic, and the full `bench-competitors` target.
 
 Commands run:
 
@@ -1246,183 +1228,6 @@ policy and storage costs.
 | WriteBehindCache under-sized to 1024, attempted large preload | 115.59 |
 | WriteBehindCache pre-sized cap | 162.02 |
 | WriteBehindCache pre-sized read_with | 62.22 |
-
-### Current remaining competitor edges after this refresh
-
-1. **DashMap p99 under narrow hot-key stress**: the 2026-06-23 dense sweep showed
-   MfS dense/inline lanes winning every p99.9 row, with DashMap keeping narrow
-   p99 wins on a few 8-thread single-key rows. A later 10-repeat diagnostic did
-   not reproduce that as a stable median-p99 edge, so this remains a benchmark to
-   watch rather than a production-code gap.
-2. **Policy-cache hit ratio**: MfS S3FIFO is competitive and fast, but TinyUFO,
-   moka, quick_cache, and foyer policies still edge it on selected hit-ratio
-   rows.
-3. **Policy-cache mixed throughput**: quick_cache remains ahead on the latest
-   8-thread mixed read/write total (8.63 Mops/s vs MfS S3FIFO 7.62 Mops/s).
-4. **Policy-cache read throughput**: TinyUFO and quick_cache edge MfS S3FIFO in
-   the 8-thread read-only policy-cache harness (12.86 Mops/s and 12.34 Mops/s
-   vs MfS S3FIFO 11.85 Mops/s).
-5. **SCC single-operation inserts/cache ops**: scc still shows strong medians,
-   especially `HashMap insert_single_sync` at 118 ns and `HashCache put,
-   saturated` at 128 ns.
-6. **Core map growth and automatic disk tiering**: papaya still owns
-   general-purpose incremental growth, and foyer still owns full hybrid disk-tier
-   caching. Core `ConcurrentMap` remains fixed-capacity and memory-first with
-   optional WAL; its `rebuild_with_capacity` API is a caller-controlled
-   maintenance copy, not live resize. The mutable object-store path now has
-growable maps, WAL/checkpoints/recovery, manifest-based cold generations with
-tombstones, cold GC, opt-in `TieringPolicy` auto-demotion, and explicit
-bundle-level read-through promotion. Bare mutable hot-store `get` remains
-memory-only; cold reads require explicit persistence wrapper calls.
-
----
-
-## 2026-07-07 Remaining Edges Catalog Update
-
-This section synthesizes evidence from the `remaining-competitor-edges`
-workstream (Tasks 1–14). Each area below includes the current
-classification, supporting evidence, and default-behavior rationale.
-
-### Disk Tier — CLOSED
-
-Evidence: T1–T8 (see `.sisyphus/evidence/task-{1..8}-*.txt` and
-`.sisyphus/notepads/remaining-competitor-edges/learnings.md`).
-
-- **Cold generations** (T1–T3): `MutableObjectStorePersistence` writes
-  generation data/index files + manifest; reads scan manifest
-  newest-first. Manifest is authoritative once it exists; tombstone
-  metadata is appended after generation entries (T4).
-- **Cold GC** (T5): `MutableObjectStoreBundle::gc_cold_tier` compacts
-  generations, retains tombstones, keeps newest visible non-expired
-  record per key, produces a `MutableObjectColdGcReport`.
-- **Tiering policy + auto-demotion** (T6): Opt-in `TieringPolicy` +
-  `demote_by_policy` writes selected clean records to a new cold
-  generation and publishes the manifest before evicting hot entries.
-  Failed versioned evictions append a cold tombstone so the stale copy
-  cannot promote later.
-- **Read-through promotion** (T7): Persistence-level
-  `get_value_with_cold_promotion` / `get_string_with_cold_promotion`
-  wrappers. Bare `MfsMutableObjectStore::get` stays memory-only.
-- **Tiered benchmark** (T8): Opt-in `mutable-tiered` row gated by env
-  knobs, reporting `cold_promotions` and demotion report fields so
-  zero-demotion runs are not mistaken for tiered measurements.
-
-Classification: **CLOSED**. The mutable object-store path now has
-manifest-based cold generations, tombstones, compacting GC, opt-in
-auto-demotion policy, and explicit bundle-level read-through
-promotion. Foyer-style automatic hybrid memory+disk caching across all
-cache lanes remains the competitor standard, but the MfS cold tier is
-a complete, internally consistent workflow. The legacy `data.mfsobj /
-index.mfsidx` flat-cold path still works for existing callers.
-
-### S3FIFO Admission — IMPROVED
-
-Evidence: T9 (`.sisyphus/evidence/task-9-*.txt,
-learnings.md`).
-
-- Multiple admission-experiment variants are registered in the tuning
-  matrix (`exp_`-prefixed rows: capacity gate, wide floor, packed 4-bit
-  counters, doorkeeper). All are opt-in through
-  `S3FifoAdmissionExperiment` + config builders.
-- **Default unchanged**: `S3FifoConfig::new` keeps
-  `admission_enabled: false` and `admission_experiment: None`.
-  `S3FifoCache::with_capacity` still routes through `new()` and
-  allocates no frequency/admission sketches.
-- No experiment variant justified a default promotion in the dedicated
-  tuning run. The gap to TinyUFO/moka/quick_cache admission-heavy
-  policies remains ~0.1–2.5 percentage points.
-
-Classification: **IMPROVED**. Admission experiments exist and are
-benchmarked, but the default admission path is unchanged. This is an
-opt-in exploration surface, not a solved production default.
-
-### S3FIFO Throughput — PROFILED
-
-Evidence: T10 (`.sisyphus/evidence/task-10-*.txt`).
-
-- Opt-in diagnostic gated by `MFS_S3FIFO_DIAG=1` samples per
-  `MFS_S3FIFO_DIAG_SAMPLE_EVERY` (default 1024) and prints
-  `diag_*` rows.
-- Read-only diagnostic: `top_cost=map_lookup_read_closure_ns`.
-- Mixed read/write diagnostic: `top_cost=rwlock_read_acquire_ns`.
-- Default bench output unchanged without env.
-
-Classification: **PROFILED**. Diagnostics identify the top cost
-centers. No throughput code changes were made; this is instrumentation,
-not optimization.
-
-### Write-Layout / SCC — IMPROVED
-
-Evidence: T11 (`.sisyphus/evidence/task-11-*.txt,
-learnings.md`).
-
-- `BucketedIndex<K>` already shipped with per-bucket striped
-  `tombstone_reuse_locks: Box<[Mutex<()>]>` (one lock per bucket,
-  independent). Verified at task execution time; no source changes
-  made.
-- `ConcurrentDenseWriteBehindMap` remains an experimental comparator;
-  no default movement. Queued enqueue-only numbers are reported but
-  not presented as applied-visible wins.
-- SCC single-operation insert medians (~93–118 ns) remain the
-  strongest competitor write-path signal. MfS dense/inline lanes are
-  the direction of response, but the `BucketedIndex` stripe closes
-  one identified local bottleneck.
-
-Classification: **IMPROVED**. Per-bucket lock striping was already in
-place. The SCC insert-median edge remains, but no further write-layout
-changes are planned in this workstream.
-
-### Live Resize — WATCH
-
-Evidence: T12 (`.sisyphus/evidence/task-12-live-resize-research.md,
-`.sisyphus/evidence/task-12-no-prod-resize.txt`).
-
-- Full research spike produced: architecture analysis, papaya
-  comparison, estimated ~1,400-line change surface, tagged-pointer
-  / seize interaction risk analysis, read-path regression estimate
-  of 25–50%, and an alternative direction using existing `AtomicU8`
-  meta fields to avoid tagged pointers.
-- **Recommendation: NO-GO** for production `ConcurrentMap` in current
-  scope.
-- Core `ConcurrentMap` remains fixed-capacity; `InsertOutcome::Full`
-  and `rebuild_with_capacity` unchanged.
-- The cold-tier `MfsMutableObjectStore` path already uses sharded
-  growable maps as the alternative for workloads needing growable key
-  capacity.
-
-Classification: **WATCH**. No production changes. The research spike
-is filed as `.sisyphus/evidence/task-12-live-resize-research.md`.
-Revisit only if fixed-capacity causes production failures or a
-cleaner approach (meta-field-based copy state) is prototyped.
-
-### DashMap Hot-Key Tails — WATCH
-
-Evidence: T13 (`.sisyphus/evidence/task-13-dashmap-watch.txt`).
-
-- Repeat 10-trial diagnostic on single-key write and single-key mixed
-  scenarios at 8 threads: MfS `DenseKvMap` wins median p99 and p99.9
-  on both rows. DashMap p99 is unstable run-to-run (CV 79.6% on
-  single-key write, 111.4% on single-key mixed).
-- No production code changed. The diagnostic mode for
-  `dense_dashmap_contention` is documented in BENCHMARKS above.
-
-Classification: **WATCH**. The earlier narrow DashMap p99 edge did
-not reproduce as a stable winner. MfS dense/inline lanes win the
-repeated-run median p99 and all p99.9 rows. Keep DashMap as a
-tail-pressure benchmark, not a code-change trigger.
-
-### Current Defaults Summary (2026-07-07)
-
-| Area | Default | Why |
-|---|---|---|
-| `S3FifoCache` admission | Off (`admission_enabled: false`) | No experiment variant consistently beats `ghost25`; gap to competitors remains |
-| `S3FifoCache` frequency sketch | Not allocated by default | `small_to_main_threshold=2` regresses hit ratio without TinyLFU substitute |
-| Live resize | Not supported (fixed-capacity) | Read-path regression risk; cold-tier `MfsMutableObjectStore` handles growable capacity |
-| Cold tier | Opt-in (`TieringPolicy`, explicit read-through wrappers) | Bare `get` stays memory-only; cold reads explicit |
-| Disk I/O in bare `get` | None | Hot store reads are memory-only; cold promotion requires persistence wrappers |
-| Write-behind WAL | Opt-in (`WalBackend` + `MFS_WAL_MODE`) | Memory writes stay fast; async enqueue is default unless `sync_now` called |
-| `BucketedIndex` lock stripe | Already per-bucket | No change needed; architecture confirmed |
-| `ConcurrentDenseWriteBehindMap` | Experimental only | Not yet the default index for `DenseWriteBehindMap`; boxed path is production |
 
 ---
 

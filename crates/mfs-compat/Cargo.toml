@@ -23,15 +23,15 @@ fjall.workspace = true
 
 [[example]]
 name = "object_store_wal"
-path = "../../examples/object_store_wal.rs"
+path = "../../examples/compat/object_store_wal.rs"
 
 [[example]]
 name = "mfs_database"
-path = "../../examples/mfs_database.rs"
+path = "../../examples/compat/mfs_database.rs"
 
 [[example]]
 name = "schema_sqlite_flush"
-path = "../../examples/schema_sqlite_flush.rs"
+path = "../../examples/compat/schema_sqlite_flush.rs"
 
 [[example]]
 name = "sqlite_vfs_page_adapter"

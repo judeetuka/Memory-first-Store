@@ -42,15 +42,19 @@ TinyUFO.workspace = true
 
 [[example]]
 name = "read_through_cache"
-path = "../../examples/read_through_cache.rs"
+path = "../../examples/core/read_through_cache.rs"
 
 [[example]]
 name = "wal_recovery"
-path = "../../examples/wal_recovery.rs"
+path = "../../examples/core/wal_recovery.rs"
 
 [[example]]
 name = "dense_counters"
-path = "../../examples/dense_counters.rs"
+path = "../../examples/core/dense_counters.rs"
+
+[[example]]
+name = "inline_u64_map"
+path = "../../examples/neural/inline_u64_map.rs"
 
 [[bench]]
 name = "mfs_hot_path"

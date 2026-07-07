@@ -1023,11 +1023,10 @@ impl S3FifoConfig {
         sample_size_floor: usize,
     ) -> Self {
         self.admission_enabled = true;
-        self.admission_experiment =
-            Some(S3FifoAdmissionExperiment::TwoCounterDecay {
-                min_width,
-                sample_size_floor,
-            });
+        self.admission_experiment = Some(S3FifoAdmissionExperiment::TwoCounterDecay {
+            min_width,
+            sample_size_floor,
+        });
         self
     }
 }

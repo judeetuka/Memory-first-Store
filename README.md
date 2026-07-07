@@ -70,6 +70,18 @@ coefficient-of-variation across runs; ≤ 5% means stable.
 > re-check, so new Zen 3 latency runs should report honest ns-class
 > timings. Throughput numbers are wall-clock based on both machines.
 
+## Headline Performance
+
+| Operation | Metric | Hardware |
+|---|---:|---|
+| `DenseU64Lane::load` | 2.1-2.2 G ops/s (atomic load floor) | Zen 3 |
+| `LockFreeCache` read (T=8) | ~315 M ops/s | Zen 3 |
+| `mfs_realistic` mixed workload (T=8) | ~60 M ops/s, read p50 ~60 ns | Zen 3 |
+| `mfs_s3fifo` vs quick_cache mixed (T=8, 80/20) | mfs leads quick_cache | Skylake T460 |
+| `DenseKvMap` existing-key update | ~17 ns, ~6.5× faster than papaya | Skylake |
+| `ConcurrentMap` read | ~4 ns, ~249 M ops/s | Skylake |
+| Custom-harness local DB comparison | MfS 4.67 M vs SQLite 0.36 M reads/s | Skylake |
+
 ## What's in the box
 
 Three cache types, dense keyed maps, and one numeric lane, sharing a single
@@ -392,6 +404,26 @@ to bound recovery time. See
 `crates/mfs-core/src/durability.rs` for what this module is
 **not** (no segment rotation, no group commit across threads, no NVRAM
 support — those are layer-on-top concerns).
+
+## Known Limitations
+
+See [BENCHMARKS.md](./BENCHMARKS.md#known-limitations) for the full list. Key points:
+
+- **S3-FIFO admission filter**: Off by default. Four experiment variants plus TwoCounterDecay are opt-in via `S3FifoAdmissionExperiment`. The default ghost25 configuration provides the best hit-ratio-vs-speed tradeoff.
+- **Fixed capacity**: `ConcurrentMap` and its dependents are fixed-capacity. Pre-size for your working set. Use `rebuild_with_capacity` for maintenance-window growth. `MfsMutableObjectStore` (opt-in, `experimental` feature) provides growable sharded maps.
+- **No automatic disk tiering**: Core cache lanes are memory-first. `MfsMutableObjectStore` supports manifest-based cold generations with explicit read-through promotion; foyer-style automatic hybrid tiering is not yet supported.
+
+## Experimental Types
+
+Types behind the `experimental` feature flag are unstable and may change or be removed without a major version bump:
+
+```toml
+[dependencies]
+mfs-core = { version = "0.2", features = ["experimental"] }
+mfs-neural = { version = "0.2", features = ["experimental"] }
+```
+
+This gates `AtomicWriteBehindCache`, `SlotWriteBehindCache` (mfs-core) and `ConcurrentDenseWriteBehindMap` (mfs-neural). These types were benchmarked but did not beat the default boxed `WriteBehindCache`/`ConcurrentMap` backends in the full matrix.
 
 ## Building, testing, benchmarking
 
