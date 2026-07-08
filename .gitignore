@@ -16,3 +16,4 @@ crates/*/benches/*/charts/
 crates/*/benches/*/*.hist
 *.hist
 *.pdf
+.sisyphus/

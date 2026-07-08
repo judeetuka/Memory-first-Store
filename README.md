@@ -1,5 +1,11 @@
 # memory-first-store
 
+> ⚠️ **Purpose-built**: This project was created as the data engine for a
+> Spiking Neural Network / GNN engine and as an embedded SQLite replacement
+> for specific workloads. It is opinionated, fixed-capacity, and memory-first
+> by design — it may not be the right fit for every use case. See
+> [Known Limitations](docs/architecture.md) for details.
+
 High-throughput, in-process Rust storage primitives for hot data: lock-free
 concurrent caches with optional write-behind to a durable backend, plus a
 dense numeric lane that runs at L1 cache latency.

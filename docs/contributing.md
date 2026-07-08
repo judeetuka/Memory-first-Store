@@ -7,20 +7,12 @@ for day-to-day development.
 
 - Rust toolchain (stable). The project targets Linux x86_64 and aarch64.
 - `cargo` (ships with rustup).
-- `make` (optional, but the Makefile wraps common workflows).
 
 ## Building
 
 ```bash
 cargo build --workspace --all-features
 ```
-
-Or via Make:
-
-```bash
-make build
-```
-
 This compiles all workspace crates (`mfs-core`, `mfs-neural`, `mfs-db`,
 `mfs-compat`) with every feature flag enabled.
 
@@ -28,12 +20,6 @@ This compiles all workspace crates (`mfs-core`, `mfs-neural`, `mfs-db`,
 
 ```bash
 cargo test --workspace --all-features
-```
-
-Or via Make:
-
-```bash
-make test
 ```
 
 For release-mode tests (closer to benchmark conditions):
@@ -48,12 +34,6 @@ cargo test --workspace --all-features --release
 cargo fmt --all
 ```
 
-Or via Make:
-
-```bash
-make fmt
-```
-
 To check formatting without modifying files (used in CI):
 
 ```bash
@@ -66,23 +46,11 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-Or via Make:
-
-```bash
-make clippy
-```
-
 All clippy warnings are treated as errors. Fix them before submitting.
 
 ## CI Check
 
 The full CI pipeline runs format check, clippy, and tests in sequence:
-
-```bash
-make ci
-```
-
-This is equivalent to:
 
 ```bash
 cargo fmt --all -- --check
@@ -92,15 +60,9 @@ cargo test --workspace --all-features
 
 ## Benchmarking
 
-MfS ships several benchmark harnesses. See the [README](../README.md)
-for the full list. Quick start:
-
-```bash
-make bench-hot          # raw read/write hot-path microbenches
-make bench-realistic    # mixed workload (Redis-replacement profile)
-make bench-criterion    # criterion-driven microbenches with confidence intervals
-make bench-competitors  # head-to-head vs Rust competitors
-```
+Benchmark harnesses are available in the development repository (not included
+in this public release). See the [README](../README.md) for methodology and
+key numbers.
 
 ## Getting Help
 
@@ -150,7 +112,6 @@ examples/
   db/              NoSQL engine examples
   compat/          Compatibility layer examples
   neural/          Dense numeric layer examples
-benches/           Benchmark harnesses
 docs/              Documentation (this directory)
 ```
 
