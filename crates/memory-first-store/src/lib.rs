@@ -4,15 +4,19 @@ pub use mfs_compat::{object_store, page_store, page_vfs, schema_flush, schema_st
 pub use mfs_core::{
     CPU_FALLBACK_PATH, CpuDispatchPath, CpuFeatures, DENSE_VALUE_MAX, DenseU64Lane,
     FastBuildHasher, FastHasher, FlushBackend, FlushRecord, MemoryFirstStore, Operation,
-    StoreConfig, StoreStats, atomic_writeback, auto_thread_count, avx2_supported, avx512_supported,
+    StoreConfig, StoreStats, auto_thread_count, avx2_supported, avx512_supported,
     bounded_reclaim, concurrent_map, cpu_relax, durability, inline_map, lockfree, prefetch_read,
-    prefetch_write, s3fifo, slot_writeback, sse42_supported, writeback,
+    prefetch_write, s3fifo, sse42_supported, writeback,
 };
+#[cfg(feature = "experimental")]
+pub use mfs_core::{atomic_writeback, slot_writeback};
 pub use mfs_db::{engine, schema, schema_value, value};
 pub use mfs_neural::{
-    bucketed_index, dense_kv, dense_writeback, dense_writeback_map, inline_handle_index,
+    bucketed_index, dense_kv, dense_writeback_map, inline_handle_index,
     queued_dense_writeback,
 };
+#[cfg(feature = "experimental")]
+pub use mfs_neural::dense_writeback;
 
 #[cfg(feature = "ahash")]
 pub use mfs_core::AHashState;
@@ -56,6 +60,7 @@ pub use mfs_db::{
 
 pub use mfs_neural::bucketed_index::{BucketedIndex, BucketedInsertOutcome};
 pub use mfs_neural::dense_kv::DenseKvMap;
+#[cfg(feature = "experimental")]
 pub use mfs_neural::dense_writeback::{
     DenseAutoFlusher, DenseWriteBehindStats as DenseU64WriteBehindStats, DenseWriteBehindU64,
 };
