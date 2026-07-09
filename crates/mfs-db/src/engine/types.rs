@@ -1,4 +1,6 @@
+use crate::engine::schema_mode::SchemaReadResult;
 use crate::engine::DurabilityMode;
+use crate::schema_value::SchemaValue;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -223,4 +225,54 @@ impl Default for ReadOptions {
 pub struct ReadResult {
     pub value: RawValue,
     pub version: DocumentVersion,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueryOptions {
+    pub filter: Option<FilterClause>,
+    pub sort_field: Option<String>,
+    pub sort_direction: SortDirection,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilterClause {
+    pub field: String,
+    pub op: FilterOp,
+    pub value: SchemaValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterOp {
+    Eq,
+    Neq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueryResult {
+    pub documents: Vec<SchemaReadResult>,
+    pub total_count: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldUpdate {
+    Set { field: String, value: SchemaValue },
+    Unset { field: String },
+    Increment { field: String, delta: i64 },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldUpdateOp {
+    pub updates: Vec<FieldUpdate>,
 }

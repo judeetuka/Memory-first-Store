@@ -43,6 +43,7 @@ struct RawCollection {
     mutation_locks: Box<[CachePadded<Mutex<()>>]>,
     mutation_lock_mask: usize,
     hash_builder: FastBuildHasher,
+    record_count: AtomicU64,
 }
 
 struct RawWriteContext<'a> {
@@ -317,7 +318,11 @@ impl NoSqlEngine {
                 .max(collection.records.len().saturating_mul(2))
                 .max(1);
             let raw_collection = RawCollection::with_capacity(capacity);
+            let mut live_count = 0u64;
             for record in collection.records {
+                if record.value.is_some() {
+                    live_count += 1;
+                }
                 match raw_collection.records.insert(
                     record.key,
                     RawRecord {
@@ -333,6 +338,9 @@ impl NoSqlEngine {
                     }
                 }
             }
+            raw_collection
+                .record_count
+                .store(live_count, Ordering::Relaxed);
             collections.insert(collection.name, Arc::new(raw_collection));
         }
 
@@ -346,6 +354,13 @@ impl NoSqlEngine {
                 next_collection_id: AtomicU64::new(next_collection_id),
             }),
         })
+    }
+
+    pub fn collection_count(&self, collection: &str) -> EngineResult<u64> {
+        Ok(self
+            .raw_collection(collection)?
+            .record_count
+            .load(Ordering::Relaxed))
     }
 
     fn raw_collection(&self, collection: &str) -> EngineResult<Arc<RawCollection>> {
@@ -436,6 +451,7 @@ impl RawCollection {
             mutation_locks: mutation_locks.into_boxed_slice(),
             mutation_lock_mask: lock_count - 1,
             hash_builder: FastBuildHasher::default(),
+            record_count: AtomicU64::new(0),
         }
     }
 
@@ -520,6 +536,7 @@ impl RawCollection {
         }
 
         let old_value = old_record.and_then(|record| record.value.as_ref());
+        let was_live = old_value.is_some();
         (hooks.preflight)(old_value, actual)?;
 
         let version = next_version(actual);
@@ -538,16 +555,28 @@ impl RawCollection {
             value.as_ref(),
             version,
         )?;
+        let is_put = value.is_some();
         let outcome = pinned.insert(key.clone(), RawRecord { value, version });
         match outcome {
-            InsertOutcome::Inserted | InsertOutcome::Replaced => Ok(WriteResult {
-                version,
-                lsn: acknowledgement.lsn(),
-                acknowledgement,
-            })
-            .inspect(|_| {
-                (hooks.after_success)(old_value, version);
-            }),
+            InsertOutcome::Inserted | InsertOutcome::Replaced => {
+                match is_put {
+                    true if !was_live => {
+                        self.record_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                    false if was_live => {
+                        self.record_count.fetch_sub(1, Ordering::Relaxed);
+                    }
+                    _ => {}
+                }
+                Ok(WriteResult {
+                    version,
+                    lsn: acknowledgement.lsn(),
+                    acknowledgement,
+                })
+                .inspect(|_| {
+                    (hooks.after_success)(old_value, version);
+                })
+            }
             InsertOutcome::Full => Err(EngineError::CollectionCapacityFull {
                 collection: context.collection.to_string(),
             }),
@@ -574,11 +603,26 @@ impl RawCollection {
         value: Option<RawValue>,
         version: DocumentVersion,
     ) -> EngineResult<()> {
-        match pinned
-            .insert_returning_old(key, RawRecord { value, version })
-            .0
-        {
-            InsertOutcome::Inserted | InsertOutcome::Replaced => Ok(()),
+        let is_put = value.is_some();
+        let (outcome, old_record) =
+            pinned.insert_returning_old(key, RawRecord { value, version });
+        match outcome {
+            InsertOutcome::Inserted | InsertOutcome::Replaced => {
+                let was_live = old_record
+                    .as_ref()
+                    .and_then(|r| r.value.as_ref())
+                    .is_some();
+                match is_put {
+                    true if !was_live => {
+                        self.record_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                    false if was_live => {
+                        self.record_count.fetch_sub(1, Ordering::Relaxed);
+                    }
+                    _ => {}
+                }
+                Ok(())
+            }
             InsertOutcome::Full => Err(EngineError::CollectionCapacityFull {
                 collection: collection.to_string(),
             }),

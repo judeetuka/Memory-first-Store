@@ -4,6 +4,7 @@ pub mod checkpoint;
 pub mod config;
 pub mod error;
 pub mod index;
+pub mod query;
 pub mod raw;
 pub mod reference;
 pub mod schema_mode;
@@ -29,8 +30,9 @@ pub use semantics::{
     WriteConflictPolicy,
 };
 pub use types::{
-    CollectionId, CollectionName, DocumentVersion, Lsn, RawKey, RawValue, ReadOptions, ReadResult,
-    WriteAcknowledgement, WriteOptions, WriteResult,
+    CollectionId, CollectionName, DocumentVersion, FieldUpdate, FieldUpdateOp, FilterClause,
+    FilterOp, Lsn, QueryOptions, QueryResult, RawKey, RawValue, ReadOptions, ReadResult,
+    SortDirection, WriteAcknowledgement, WriteOptions, WriteResult,
 };
 pub use wal::{
     RAW_WAL_FORMAT_VERSION, RawWalRecord, RawWalReplayStats, RawWalSegmentReader,

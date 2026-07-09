@@ -171,6 +171,31 @@ pub enum EngineError {
         path: String,
         message: String,
     },
+    UnsupportedQueryOperator {
+        field: String,
+        operator: &'static str,
+        field_type: &'static str,
+    },
+    UnsortableField {
+        field: String,
+        field_type: &'static str,
+    },
+    InvalidUpdatePath {
+        field: String,
+        reason: &'static str,
+    },
+    PrimaryKeyUpdateForbidden,
+    DocumentNotFound {
+        collection: String,
+    },
+    NumericOverflow {
+        field: String,
+    },
+    UpdateTypeMismatch {
+        field: String,
+        expected: &'static str,
+        actual: SchemaValueKind,
+    },
 }
 
 impl fmt::Display for EngineError {
@@ -319,6 +344,37 @@ impl fmt::Display for EngineError {
             } => write!(
                 f,
                 "raw checkpoint I/O error during {operation} for `{path}`: {message}"
+            ),
+            Self::UnsupportedQueryOperator {
+                field,
+                operator,
+                field_type,
+            } => write!(
+                f,
+                "unsupported query operator `{operator}` for field `{field}` of type `{field_type}`"
+            ),
+            Self::UnsortableField { field, field_type } => {
+                write!(f, "field `{field}` of type `{field_type}` cannot be used for sorting")
+            }
+            Self::InvalidUpdatePath { field, reason } => {
+                write!(f, "invalid update path `{field}`: {reason}")
+            }
+            Self::PrimaryKeyUpdateForbidden => {
+                write!(f, "updating a primary key field is forbidden")
+            }
+            Self::DocumentNotFound { collection } => {
+                write!(f, "document not found in collection `{collection}`")
+            }
+            Self::NumericOverflow { field } => {
+                write!(f, "numeric overflow on field `{field}`")
+            }
+            Self::UpdateTypeMismatch {
+                field,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "update type mismatch for field `{field}`: expected {expected}, got {actual}"
             ),
         }
     }
