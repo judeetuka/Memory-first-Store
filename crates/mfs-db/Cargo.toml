@@ -20,6 +20,24 @@ crossbeam-utils.workspace = true
 crc32c.workspace = true
 serde_json = { workspace = true, optional = true }
 
+[dev-dependencies]
+flate2 = "1.1"
+rand.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+redb.workspace = true
+fjall.workspace = true
+ureq = { version = "3", features = ["gzip"] }
+tempfile = "3"
+
+[[example]]
+name = "cc_wet_bench"
+path = "../../examples/db/cc_wet_bench.rs"
+
+[[example]]
+name = "cc_wet_extract"
+path = "../../examples/db/cc_wet_extract.rs"
+
 [[example]]
 name = "nosql_raw_kv"
 path = "../../examples/db/nosql_raw_kv.rs"
