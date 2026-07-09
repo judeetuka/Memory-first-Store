@@ -363,6 +363,24 @@ impl NoSqlEngine {
             .load(Ordering::Relaxed))
     }
 
+    /// Iterate over every live record in a raw collection.
+    ///
+    /// The callback receives the raw key, the raw value, and the document
+    /// version. Tombstone entries (deleted records) are silently skipped.
+    pub(crate) fn for_each_raw_record(
+        &self,
+        collection: &str,
+        mut f: impl FnMut(&RawKey, &RawValue, DocumentVersion),
+    ) -> EngineResult<()> {
+        let col = self.raw_collection(collection)?;
+        col.records.for_each(|key, record| {
+            if let Some(ref value) = record.value {
+                f(key, value, record.version);
+            }
+        });
+        Ok(())
+    }
+
     fn raw_collection(&self, collection: &str) -> EngineResult<Arc<RawCollection>> {
         self.inner
             .collections

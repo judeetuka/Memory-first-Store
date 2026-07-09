@@ -1,13 +1,17 @@
 use crate::engine::index::{
     SchemaCollectionIndexes, SchemaIndexWritePlan, decode_schema_raw_value,
 };
+use crate::engine::query::{compare_for_sort, evaluate_filter};
 use crate::engine::{
-    CollectionId, DocumentVersion, EngineError, EngineResult, NoSqlEngine, RawKey, RawValue,
-    ReadOptions, WriteOptions, WriteResult,
+    CollectionId, DocumentVersion, EngineError, EngineResult, FilterClause, FilterOp, NoSqlEngine,
+    QueryOptions, QueryResult, RawKey, RawValue, ReadOptions, SortDirection, WriteOptions,
+    WriteResult,
 };
 use crate::schema::{Schema, SchemaField, SchemaFieldType};
 use crate::schema_value::{SchemaValue, SchemaValueError, encode_schema_value, validate_document};
 use std::cell::RefCell;
+use std::cmp::Ordering;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SchemaReadResult {
@@ -127,6 +131,182 @@ impl NoSqlEngine {
             version: raw.version,
         }))
     }
+
+    /// Batch read by primary keys.
+    ///
+    /// Reads each key independently (no snapshot isolation).
+    /// Duplicate keys are deduplicated. Missing keys are silently skipped.
+    pub fn multi_get_schema(
+        &self,
+        schema: &Schema,
+        keys: &[SchemaValue],
+        options: ReadOptions,
+    ) -> EngineResult<Vec<SchemaReadResult>> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut seen = HashSet::new();
+        let mut results = Vec::new();
+
+        for key in keys {
+            let raw_key = schema_primary_key_raw_key(schema, key)?;
+            if !seen.insert(raw_key) {
+                continue;
+            }
+            if let Some(doc) = self.get_schema(schema, key, options)? {
+                results.push(doc);
+            }
+        }
+
+        Ok(results)
+    }
+
+    pub fn query_schema(
+        &self,
+        schema: &Schema,
+        options: QueryOptions,
+    ) -> EngineResult<QueryResult> {
+        let state = self.ensure_schema_indexes(schema)?;
+        let _read_unit = state.lock_read_unit();
+
+        // Phase 1: Filter — collect matching (key, document, version) triples.
+        let mut results: Vec<(RawKey, SchemaValue, DocumentVersion)> = Vec::new();
+
+        if let Some(ref filter) = options.filter {
+            if filter.op == FilterOp::Eq {
+                match self.lookup_schema(
+                    schema,
+                    &filter.field,
+                    &filter.value,
+                    ReadOptions::default(),
+                ) {
+                    Ok(lookup_results) => {
+                        results = lookup_results
+                            .into_iter()
+                            .map(|r| (r.primary_key, r.document, r.version))
+                            .collect();
+                    }
+                    Err(EngineError::UnindexedField { .. }) => {
+                        scan_collect(self, schema, Some(filter), &mut results)?;
+                    }
+                    Err(e) => return Err(e),
+                }
+            } else {
+                scan_collect(self, schema, Some(filter), &mut results)?;
+            }
+        } else {
+            scan_collect(self, schema, None, &mut results)?;
+        }
+
+        // Phase 2: Sort.
+        let descending = options.sort_direction == SortDirection::Desc;
+        if let Some(ref sort_field) = options.sort_field {
+            results.sort_by(|(key_a, doc_a, _), (key_b, doc_b, _)| {
+                let field_a = doc_a.field(sort_field);
+                let field_b = doc_b.field(sort_field);
+                let null_val = SchemaValue::Null;
+                let ord = compare_for_sort(
+                    field_a.unwrap_or(&null_val),
+                    field_b.unwrap_or(&null_val),
+                );
+                if ord != Ordering::Equal {
+                    if descending {
+                        ord.reverse()
+                    } else {
+                        ord
+                    }
+                } else {
+                    let key_ord = key_a.as_bytes().cmp(key_b.as_bytes());
+                    if descending {
+                        key_ord.reverse()
+                    } else {
+                        key_ord
+                    }
+                }
+            });
+        } else {
+            results.sort_by(|(key_a, _, _), (key_b, _, _)| {
+                key_a.as_bytes().cmp(key_b.as_bytes())
+            });
+        }
+
+        // Phase 3: Paginate.
+        let offset = options.offset.unwrap_or(0);
+        let limit = options.limit.unwrap_or(usize::MAX);
+        let documents: Vec<SchemaReadResult> = results
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(|(_, document, version)| SchemaReadResult { document, version })
+            .collect();
+
+        Ok(QueryResult {
+            documents,
+            total_count: None,
+        })
+    }
+
+    pub fn count_schema(
+        &self,
+        schema: &Schema,
+        filter: Option<FilterClause>,
+    ) -> EngineResult<u64> {
+        match filter {
+            None => self.collection_count(&schema.name),
+            Some(filter) => {
+                let options = QueryOptions {
+                    filter: Some(filter),
+                    sort_field: None,
+                    sort_direction: SortDirection::Asc,
+                    limit: None,
+                    offset: None,
+                };
+                let result = self.query_schema(schema, options)?;
+                Ok(result.documents.len() as u64)
+            }
+        }
+    }
+}
+
+fn scan_collect(
+    engine: &NoSqlEngine,
+    schema: &Schema,
+    filter: Option<&FilterClause>,
+    results: &mut Vec<(RawKey, SchemaValue, DocumentVersion)>,
+) -> EngineResult<()> {
+    let mut error: Option<EngineError> = None;
+
+    engine.for_each_raw_record(&schema.name, |key, raw_value, version| {
+        if error.is_some() {
+            return;
+        }
+        let document = match decode_schema_raw_value(schema, raw_value) {
+            Ok(d) => d,
+            Err(e) => {
+                error = Some(e);
+                return;
+            }
+        };
+        if let Some(f) = filter {
+            let field_val = match document.field(&f.field) {
+                Some(v) => v,
+                None => return,
+            };
+            match evaluate_filter(field_val, f.op, &f.value) {
+                Ok(true) => results.push((key.clone(), document, version)),
+                Ok(false) => {}
+                Err(e) => error = Some(e),
+            }
+        } else {
+            results.push((key.clone(), document, version));
+        }
+    })?;
+
+    if let Some(e) = error {
+        return Err(e);
+    }
+    Ok(())
 }
 
 pub fn schema_document_raw_key(schema: &Schema, document: &SchemaValue) -> EngineResult<RawKey> {
