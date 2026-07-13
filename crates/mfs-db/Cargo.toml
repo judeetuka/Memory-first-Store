@@ -62,8 +62,3 @@ path = "../../examples/db/nosql_query.rs"
 name = "mfs_nosql_engine"
 path = "../../benches/mfs/nosql_engine.rs"
 harness = false
-
-[[bench]]
-name = "mfs_nosql_query"
-path = "../../benches/mfs/nosql_query.rs"
-harness = false

@@ -171,15 +171,6 @@ pub enum EngineError {
         path: String,
         message: String,
     },
-    UnsupportedQueryOperator {
-        field: String,
-        operator: &'static str,
-        field_type: &'static str,
-    },
-    UnsortableField {
-        field: String,
-        field_type: &'static str,
-    },
     InvalidUpdatePath {
         field: String,
         reason: &'static str,
@@ -345,17 +336,6 @@ impl fmt::Display for EngineError {
                 f,
                 "raw checkpoint I/O error during {operation} for `{path}`: {message}"
             ),
-            Self::UnsupportedQueryOperator {
-                field,
-                operator,
-                field_type,
-            } => write!(
-                f,
-                "unsupported query operator `{operator}` for field `{field}` of type `{field_type}`"
-            ),
-            Self::UnsortableField { field, field_type } => {
-                write!(f, "field `{field}` of type `{field_type}` cannot be used for sorting")
-            }
             Self::InvalidUpdatePath { field, reason } => {
                 write!(f, "invalid update path `{field}`: {reason}")
             }
