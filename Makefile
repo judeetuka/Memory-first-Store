@@ -110,6 +110,9 @@ bench-local-db:
 bench-nosql-engine:
 	$(BENCH) -p mfs-db --bench mfs_nosql_engine
 
+bench-nosql-query:
+	$(BENCH) -p mfs-db --bench mfs_nosql_query
+
 bench-object-realistic:
 	$(BENCH) -p mfs-compat --bench mfs_object_realistic
 
