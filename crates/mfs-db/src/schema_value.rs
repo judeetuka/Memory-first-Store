@@ -92,6 +92,18 @@ pub enum SchemaValueError {
     EncodedValueTooLarge {
         len: usize,
     },
+    FieldPathNotObject {
+        path: String,
+        segment: String,
+        actual: SchemaValueKind,
+    },
+    NotIncrementable {
+        path: String,
+        actual: SchemaValueKind,
+    },
+    NumericOverflow {
+        path: String,
+    },
 }
 
 impl SchemaValue {
@@ -136,12 +148,60 @@ impl SchemaValue {
         }
     }
 
+    pub fn as_object_mut(&mut self) -> Option<&mut BTreeMap<String, SchemaValue>> {
+        match self {
+            Self::Object(fields) => Some(fields),
+            _ => None,
+        }
+    }
+
     pub fn field(&self, path: &str) -> Option<&SchemaValue> {
         resolve_path(self.as_object()?, path)
     }
 
     pub fn validate_against(&self, schema: &Schema) -> Result<(), SchemaValueError> {
         validate_document(schema, self)
+    }
+
+    /// Set a field by dot-separated path, creating intermediate objects as needed.
+    pub fn set_field(
+        &mut self,
+        path: &str,
+        value: SchemaValue,
+    ) -> Result<(), SchemaValueError> {
+        let kind = self.kind();
+        let obj = self.as_object_mut().ok_or(
+            SchemaValueError::RootMustBeObject { actual: kind },
+        )?;
+        set_field_impl(obj, path, value)
+    }
+
+    /// Remove a field by dot-separated path.
+    ///
+    /// Returns `true` if the field existed and was removed.
+    pub fn unset_field(&mut self, path: &str) -> bool {
+        let obj = match self.as_object_mut() {
+            Some(o) => o,
+            None => return false,
+        };
+        unset_field_impl(obj, path)
+    }
+
+    /// Increment a numeric field by `delta`.
+    ///
+    /// If the field does not exist it is created as `Int64(delta)`.
+    /// Returns an error if the field exists but is non-numeric, or the
+    /// increment would overflow.
+    pub fn apply_increment(
+        &mut self,
+        path: &str,
+        delta: i64,
+    ) -> Result<(), SchemaValueError> {
+        let kind = self.kind();
+        let obj = self.as_object_mut().ok_or(
+            SchemaValueError::RootMustBeObject { actual: kind },
+        )?;
+        apply_increment_impl(obj, path, delta)
     }
 }
 
@@ -164,6 +224,112 @@ impl WalCodec<Vec<u8>, SchemaValue> for SchemaValueCodec {
     fn decode_value(&self, bytes: &[u8]) -> io::Result<SchemaValue> {
         decode_schema_value(bytes)
     }
+}
+
+fn set_field_impl(
+    obj: &mut BTreeMap<String, SchemaValue>,
+    path: &str,
+    value: SchemaValue,
+) -> Result<(), SchemaValueError> {
+    let segments: Vec<&str> = path.split('.').collect();
+    let (last, parents) = segments
+        .split_last()
+        .expect("split always yields at least one segment");
+    let mut current = obj;
+    for &segment in parents {
+        let entry = current
+            .entry(segment.to_string())
+            .or_insert_with(|| SchemaValue::Object(BTreeMap::new()));
+        match entry {
+            SchemaValue::Object(nested) => current = nested,
+            other => {
+                return Err(SchemaValueError::FieldPathNotObject {
+                    path: path.to_string(),
+                    segment: segment.to_string(),
+                    actual: other.kind(),
+                });
+            }
+        }
+    }
+    current.insert(last.to_string(), value);
+    Ok(())
+}
+
+fn unset_field_impl(obj: &mut BTreeMap<String, SchemaValue>, path: &str) -> bool {
+    let segments: Vec<&str> = path.split('.').collect();
+    let (last, parents) = segments
+        .split_last()
+        .expect("split always yields at least one segment");
+    let mut current = obj;
+    for &segment in parents {
+        match current.get_mut(segment) {
+            Some(SchemaValue::Object(nested)) => current = nested,
+            _ => return false,
+        }
+    }
+    current.remove(*last).is_some()
+}
+
+fn apply_increment_impl(
+    obj: &mut BTreeMap<String, SchemaValue>,
+    path: &str,
+    delta: i64,
+) -> Result<(), SchemaValueError> {
+    let segments: Vec<&str> = path.split('.').collect();
+    let (last, parents) = segments
+        .split_last()
+        .expect("split always yields at least one segment");
+    let mut current = obj;
+    for &segment in parents {
+        let entry = current
+            .entry(segment.to_string())
+            .or_insert_with(|| SchemaValue::Object(BTreeMap::new()));
+        match entry {
+            SchemaValue::Object(nested) => current = nested,
+            other => {
+                return Err(SchemaValueError::FieldPathNotObject {
+                    path: path.to_string(),
+                    segment: segment.to_string(),
+                    actual: other.kind(),
+                });
+            }
+        }
+    }
+    match current.get_mut(*last) {
+        Some(SchemaValue::Int32(val)) => {
+            let promoted = i64::from(*val);
+            let result = promoted
+                .checked_add(delta)
+                .ok_or(SchemaValueError::NumericOverflow {
+                    path: path.to_string(),
+                })?;
+            let narrowed =
+                i32::try_from(result).map_err(|_| SchemaValueError::NumericOverflow {
+                    path: path.to_string(),
+                })?;
+            *val = narrowed;
+        }
+        Some(SchemaValue::Int64(val)) => {
+            *val = val
+                .checked_add(delta)
+                .ok_or(SchemaValueError::NumericOverflow {
+                    path: path.to_string(),
+                })?;
+        }
+        Some(SchemaValue::Float(val)) => {
+            *val += delta as f64;
+        }
+        Some(other) => {
+            return Err(SchemaValueError::NotIncrementable {
+                path: path.to_string(),
+                actual: other.kind(),
+            });
+        }
+        None => {
+            current.insert(last.to_string(), SchemaValue::Int64(delta));
+        }
+    }
+    Ok(())
 }
 
 pub fn validate_document(schema: &Schema, value: &SchemaValue) -> Result<(), SchemaValueError> {
@@ -285,6 +451,23 @@ impl fmt::Display for SchemaValueError {
             }
             Self::EncodedValueTooLarge { len } => {
                 write!(f, "encoded schema value length {len} exceeds limit")
+            }
+            Self::FieldPathNotObject {
+                path,
+                segment,
+                actual,
+            } => write!(
+                f,
+                "field path `{path}`: segment `{segment}` is {actual}, not an object"
+            ),
+            Self::NotIncrementable { path, actual } => {
+                write!(
+                    f,
+                    "field `{path}` is {actual} which is not incrementable"
+                )
+            }
+            Self::NumericOverflow { path } => {
+                write!(f, "numeric overflow on field `{path}`")
             }
         }
     }

@@ -3,12 +3,15 @@ use crate::engine::index::{
 };
 use crate::engine::query::{compare_for_sort, evaluate_filter};
 use crate::engine::{
-    CollectionId, DocumentVersion, EngineError, EngineResult, FilterClause, FilterOp, NoSqlEngine,
-    QueryOptions, QueryResult, RawKey, RawValue, ReadOptions, SortDirection, WriteOptions,
-    WriteResult,
+    CollectionId, DocumentVersion, EngineError, EngineResult, FieldUpdate, FieldUpdateOp,
+    FilterClause, FilterOp, NoSqlEngine, QueryOptions, QueryResult, RawKey, RawValue, ReadOptions,
+    SortDirection, WriteOptions, WriteResult,
 };
 use crate::schema::{Schema, SchemaField, SchemaFieldType};
-use crate::schema_value::{SchemaValue, SchemaValueError, encode_schema_value, validate_document};
+use crate::schema_value::{
+    SchemaValue, SchemaValueError, SchemaValueKind, decode_schema_value, encode_schema_value,
+    validate_document,
+};
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -267,6 +270,104 @@ impl NoSqlEngine {
             }
         }
     }
+
+    pub fn update_schema(
+        &self,
+        schema: &Schema,
+        primary_key: &SchemaValue,
+        operations: FieldUpdateOp,
+        options: WriteOptions,
+    ) -> EngineResult<WriteResult> {
+        const MAX_RETRIES: u32 = 3;
+        let mut retries = 0;
+
+        loop {
+            let current = match self.get_schema(schema, primary_key, ReadOptions::default())? {
+                Some(doc) => doc,
+                None => {
+                    return Err(EngineError::DocumentNotFound {
+                        collection: schema.name.clone(),
+                    });
+                }
+            };
+
+            let mut encoded = Vec::new();
+            encode_schema_value(&current.document, &mut encoded);
+            let mut mutated = decode_schema_value(&encoded).map_err(|e| {
+                EngineError::SchemaDecode {
+                    collection: schema.name.clone(),
+                    message: e.to_string(),
+                }
+            })?;
+
+            let primary_field =
+                schema
+                    .primary_field()
+                    .ok_or_else(|| EngineError::SchemaMissingPrimaryField {
+                        collection: schema.name.clone(),
+                    })?;
+
+            for update in &operations.updates {
+                match update {
+                    FieldUpdate::Set { field, value } => {
+                        if field == &primary_field.name {
+                            return Err(EngineError::PrimaryKeyUpdateForbidden);
+                        }
+                        mutated.set_field(field, value.clone()).map_err(|_| {
+                            EngineError::InvalidUpdatePath {
+                                field: field.clone(),
+                                reason: "path traverses non-object or is otherwise invalid",
+                            }
+                        })?;
+                    }
+                    FieldUpdate::Unset { field } => {
+                        if field == &primary_field.name {
+                            return Err(EngineError::PrimaryKeyUpdateForbidden);
+                        }
+                        mutated.unset_field(field);
+                    }
+                    FieldUpdate::Increment { field, delta } => {
+                        if field == &primary_field.name {
+                            return Err(EngineError::PrimaryKeyUpdateForbidden);
+                        }
+                        mutated
+                            .apply_increment(field, *delta)
+                            .map_err(|e| map_increment_error(field, &e))?;
+                    }
+                }
+            }
+
+            validate_document(schema, &mutated).map_err(|error| {
+                EngineError::SchemaDocument {
+                    collection: schema.name.clone(),
+                    error,
+                }
+            })?;
+
+            match self.put_schema(
+                schema,
+                mutated,
+                WriteOptions {
+                    expected_version: Some(current.version),
+                    ..options
+                },
+            ) {
+                Ok(result) => return Ok(result),
+                Err(EngineError::Conflict { .. }) => {
+                    retries += 1;
+                    if retries >= MAX_RETRIES {
+                        return Err(EngineError::Conflict {
+                            collection: schema.name.clone(),
+                            key: schema_primary_key_raw_key(schema, primary_key)?,
+                            expected: current.version,
+                            actual: DocumentVersion::ZERO,
+                        });
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
 }
 
 fn scan_collect(
@@ -442,5 +543,34 @@ fn schema_type_name(field_type: &SchemaFieldType) -> &'static str {
         SchemaFieldType::Array(_) => "array",
         SchemaFieldType::Json => "json",
         SchemaFieldType::Bytes => "bytes",
+    }
+}
+
+fn map_increment_error(field: &str, err: &SchemaValueError) -> EngineError {
+    let msg = err.to_string();
+    if msg.contains("overflow") || msg.contains("NumericOverflow") {
+        EngineError::NumericOverflow {
+            field: field.to_string(),
+        }
+    } else if msg.contains("incrementable") || msg.contains("NotIncrementable") {
+        match err {
+            SchemaValueError::NotIncrementable { actual, .. } => {
+                EngineError::UpdateTypeMismatch {
+                    field: field.to_string(),
+                    expected: "numeric",
+                    actual: *actual,
+                }
+            }
+            _ => EngineError::UpdateTypeMismatch {
+                field: field.to_string(),
+                expected: "numeric",
+                actual: SchemaValueKind::Null,
+            },
+        }
+    } else {
+        EngineError::InvalidUpdatePath {
+            field: field.to_string(),
+            reason: "invalid for increment",
+        }
     }
 }
