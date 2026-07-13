@@ -165,6 +165,10 @@ impl NoSqlEngine {
         Ok(results)
     }
 
+    /// Filter, sort, and paginate documents in a schema collection.
+    ///
+    /// Scans all records, applies the optional filter, sorts by the specified
+    /// field (ties broken by primary key bytes), then applies offset/limit.
     pub fn query_schema(
         &self,
         schema: &Schema,
@@ -250,6 +254,10 @@ impl NoSqlEngine {
         })
     }
 
+    /// Count documents in a schema collection.
+    ///
+    /// With `None` filter, returns the atomic collection counter.
+    /// With `Some(filter)`, scans and counts matching documents.
     pub fn count_schema(
         &self,
         schema: &Schema,
@@ -271,6 +279,11 @@ impl NoSqlEngine {
         }
     }
 
+    /// Partial update with optimistic CAS retry (max 3 attempts).
+    ///
+    /// Reads the current document, applies all mutations in order,
+    /// re-validates against the schema, then writes with expected version.
+    /// On conflict, retries from a fresh read. Primary key field cannot be modified.
     pub fn update_schema(
         &self,
         schema: &Schema,

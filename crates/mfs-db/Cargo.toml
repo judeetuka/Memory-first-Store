@@ -54,6 +54,10 @@ path = "../../examples/db/nosql_wal_recovery.rs"
 name = "nosql_checkpoint_recovery"
 path = "../../examples/db/nosql_checkpoint_recovery.rs"
 
+[[example]]
+name = "nosql_query"
+path = "../../examples/db/nosql_query.rs"
+
 [[bench]]
 name = "mfs_nosql_engine"
 path = "../../benches/mfs/nosql_engine.rs"

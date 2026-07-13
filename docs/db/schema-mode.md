@@ -223,6 +223,106 @@ pub struct SchemaLookupResult {
 }
 ```
 
+### `NoSqlEngine::query_schema`
+
+```rust
+pub fn query_schema(
+    &self,
+    schema: &Schema,
+    options: QueryOptions,
+) -> EngineResult<QueryResult>
+```
+
+Filter, sort, and paginate documents in a collection. The filter uses a single `FilterClause` with operators `Eq`, `Neq`, `Gt`, `Gte`, `Lt`, `Lte`. Sort by any indexed field with `SortDirection::Asc` or `SortDirection::Desc`. Ties broken by primary key bytes. Pagination via `offset` and `limit`.
+
+### `NoSqlEngine::count_schema`
+
+```rust
+pub fn count_schema(
+    &self,
+    schema: &Schema,
+    filter: Option<FilterClause>,
+) -> EngineResult<u64>
+```
+
+Count documents in a collection. Pass `None` for total count (uses atomic counter). Pass `Some(filter)` to count matching documents.
+
+### `NoSqlEngine::multi_get_schema`
+
+```rust
+pub fn multi_get_schema(
+    &self,
+    schema: &Schema,
+    keys: &[SchemaValue],
+    options: ReadOptions,
+) -> EngineResult<Vec<SchemaReadResult>>
+```
+
+Batch read by primary keys. Duplicate keys are deduplicated. Missing keys are silently skipped. No snapshot isolation across keys.
+
+### `NoSqlEngine::update_schema`
+
+```rust
+pub fn update_schema(
+    &self,
+    schema: &Schema,
+    primary_key: &SchemaValue,
+    operations: FieldUpdateOp,
+    options: WriteOptions,
+) -> EngineResult<WriteResult>
+```
+
+Partial update with optimistic CAS retry (max 3 attempts). Supports `Set` (assign field value), `Unset` (remove field), and `Increment` (add delta to numeric field). Primary key field cannot be modified. Document is re-validated against schema after all mutations.
+
+### `QueryOptions`
+
+```rust
+pub struct QueryOptions {
+    pub filter: Option<FilterClause>,
+    pub sort_field: Option<String>,
+    pub sort_direction: SortDirection,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+```
+
+### `FilterClause`
+
+```rust
+pub struct FilterClause {
+    pub field: String,
+    pub op: FilterOp,
+    pub value: SchemaValue,
+}
+
+pub enum FilterOp {
+    Eq, Neq, Gt, Gte, Lt, Lte,
+}
+```
+
+### `QueryResult`
+
+```rust
+pub struct QueryResult {
+    pub documents: Vec<SchemaReadResult>,
+    pub total_count: Option<u64>,
+}
+```
+
+### `FieldUpdateOp`
+
+```rust
+pub struct FieldUpdateOp {
+    pub updates: Vec<FieldUpdate>,
+}
+
+pub enum FieldUpdate {
+    Set { field: String, value: SchemaValue },
+    Unset { field: String },
+    Increment { field: String, delta: i64 },
+}
+```
+
 ## Schema validation rules
 
 - Exactly one primary field.
