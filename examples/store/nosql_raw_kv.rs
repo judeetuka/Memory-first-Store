@@ -1,9 +1,9 @@
-//! Raw key/value operations on the NoSQL engine.
+//! Raw key/value operations on the hot store.
 //!
-//! Run with `cargo run -p mfs-db --release --example nosql_raw_kv`.
+//! Run with `cargo run -p mfs-store --release --example nosql_raw_kv`.
 
-use mfs_db::engine::{
-    DocumentVersion, EngineConfig, EngineError, NoSqlEngine, RawKey, RawValue, ReadOptions,
+use mfs_store::store::{
+    DocumentVersion, MfsStoreConfig, StoreError, MfsStore, RawKey, RawValue, ReadOptions,
     WriteOptions,
 };
 
@@ -12,9 +12,9 @@ fn text(bytes: &[u8]) -> String {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let engine = NoSqlEngine::open_memory(EngineConfig {
+    let engine = MfsStore::open_memory(MfsStoreConfig {
         raw_initial_capacity: 16,
-        ..EngineConfig::default()
+        ..MfsStoreConfig::default()
     })?;
     let collection_id = engine.create_raw_collection("sessions")?;
     println!(
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         RawValue::from(&b"state=stale"[..]),
         first.version,
     ) {
-        Err(EngineError::Conflict {
+        Err(StoreError::Conflict {
             expected, actual, ..
         }) => println!(
             "stale write rejected: expected v{}, actual v{}",

@@ -10,7 +10,7 @@
 use mfs_compat::object_store::MfsObjectStore;
 use mfs_core::Operation;
 use mfs_core::durability::{WalBackend, WalConfig};
-use mfs_db::value::{MfsValue, MfsValueCodec};
+use mfs_store::value::{MfsValue, MfsValueCodec};
 use std::path::Path;
 
 fn replay_object_store(path: &Path, store: &MfsObjectStore) -> std::io::Result<usize> {

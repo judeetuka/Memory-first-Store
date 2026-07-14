@@ -1,10 +1,10 @@
-//! Schema-mode documents on the NoSQL engine.
+//! Schema-mode documents on the hot store.
 //!
-//! Run with `cargo run -p mfs-db --release --example nosql_schema_mode`.
+//! Run with `cargo run -p mfs-store --release --example nosql_schema_mode`.
 
-use mfs_db::engine::{DocumentVersion, EngineConfig, NoSqlEngine, ReadOptions, WriteOptions};
-use mfs_db::schema::{Schema, SchemaField, SchemaFieldType};
-use mfs_db::schema_value::SchemaValue;
+use mfs_store::store::{DocumentVersion, MfsStoreConfig, MfsStore, ReadOptions, WriteOptions};
+use mfs_store::schema::{Schema, SchemaField, SchemaFieldType};
+use mfs_store::schema_value::SchemaValue;
 
 fn users_schema() -> Schema {
     let mut id = SchemaField::new("id", SchemaFieldType::String);
@@ -39,9 +39,9 @@ fn string_field(document: &SchemaValue, field: &str) -> String {
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let schema = users_schema();
-    let engine = NoSqlEngine::open_memory(EngineConfig {
+    let engine = MfsStore::open_memory(MfsStoreConfig {
         raw_initial_capacity: 16,
-        ..EngineConfig::default()
+        ..MfsStoreConfig::default()
     })?;
     let collection_id = engine.create_schema_collection(&schema)?;
     println!(

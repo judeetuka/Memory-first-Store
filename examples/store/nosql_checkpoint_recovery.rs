@@ -1,9 +1,9 @@
 //! Raw NoSQL checkpoint plus WAL suffix recovery.
 //!
-//! Run with `cargo run -p mfs-db --release --example nosql_checkpoint_recovery`.
+//! Run with `cargo run -p mfs-store --release --example nosql_checkpoint_recovery`.
 
-use mfs_db::engine::{
-    EngineConfig, Lsn, NoSqlEngine, RawKey, RawValue, RawWalSegmentWriter, ReadOptions,
+use mfs_store::store::{
+    MfsStoreConfig, Lsn, MfsStore, RawKey, RawValue, RawWalSegmentWriter, ReadOptions,
     WriteOptions, recover_raw_checkpoint_then_wal, write_raw_checkpoint_to_dir,
 };
 
@@ -18,11 +18,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     std::fs::remove_dir_all(&root).ok();
     std::fs::create_dir_all(&checkpoint_dir)?;
 
-    let config = EngineConfig {
+    let config = MfsStoreConfig {
         raw_initial_capacity: 16,
-        ..EngineConfig::default()
+        ..MfsStoreConfig::default()
     };
-    let engine = NoSqlEngine::open_memory(config.clone())?;
+    let engine = MfsStore::open_memory(config.clone())?;
     engine.create_raw_collection("raw_users")?;
 
     let key_a = RawKey::from(&b"user:1"[..]);

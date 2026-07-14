@@ -1,5 +1,5 @@
-use mfs_db::engine::{
-    DurabilityMode, EngineConfig, Lsn, NoSqlEngine, RawKey, RawValue, ReadOptions, WriteOptions,
+use mfs_store::store::{
+    DurabilityMode, MfsStoreConfig, Lsn, MfsStore, RawKey, RawValue, ReadOptions, WriteOptions,
 };
 use redb::{
     Database as RedbDatabase, Durability as RedbDurability, ReadableDatabase, TableDefinition,
@@ -414,14 +414,14 @@ fn measure<State>(
 }
 
 struct MfsWriteState {
-    engine: NoSqlEngine,
+    engine: MfsStore,
     keys: Vec<RawKey>,
     values: Vec<RawValue>,
     wal_path: Option<PathBuf>,
 }
 
 struct MfsReadState {
-    engine: NoSqlEngine,
+    engine: MfsStore,
     keys: Vec<RawKey>,
 }
 
@@ -460,17 +460,17 @@ fn open_mfs_engine(
     key_count: usize,
     durability: DurabilityMode,
     wal_path: Option<PathBuf>,
-) -> NoSqlEngine {
-    NoSqlEngine::open_memory(EngineConfig {
+) -> MfsStore {
+    MfsStore::open_memory(MfsStoreConfig {
         raw_initial_capacity: key_count.saturating_mul(4).max(64),
         durability,
         wal_path,
-        ..EngineConfig::default()
+        ..MfsStoreConfig::default()
     })
     .expect("open mfs engine")
 }
 
-fn preload_mfs(engine: &NoSqlEngine, keys: &[RawKey], values: &[RawValue]) {
+fn preload_mfs(engine: &MfsStore, keys: &[RawKey], values: &[RawValue]) {
     for (key, value) in keys.iter().zip(values.iter()) {
         engine
             .put_raw(

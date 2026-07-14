@@ -5,7 +5,7 @@ RUSTUP ?= rustup
 BENCH  ?= $(CARGO) bench --all-features
 
 .PHONY: help build test test-release fmt fmt-check lint clippy doc clean \
-        bench bench-hot bench-wal bench-slot-writeback bench-s3fifo-tuning bench-queued-write bench-object-store bench-schema-store bench-local-db bench-nosql-engine bench-object-realistic bench-realistic bench-realistic-stable bench-probe bench-criterion bench-competitors bench-criterion-report \
+        bench bench-hot bench-wal bench-slot-writeback bench-s3fifo-tuning bench-queued-write bench-object-store bench-schema-store bench-local-db bench-store bench-object-realistic bench-realistic bench-realistic-stable bench-probe bench-criterion bench-competitors bench-criterion-report \
         all check ci
 
 help:
@@ -29,7 +29,7 @@ help:
 	@echo "  make bench-object-store     object-value writer comparison bench"
 	@echo "  make bench-schema-store     schema store CRUD/index/include/WAL/SQL bench"
 	@echo "  make bench-local-db         library-only SQLite/redb/fjall KV comparison"
-	@echo "  make bench-nosql-engine     NoSqlEngine lane harness (raw/schema/WAL/checkpoint/replay)"
+	@echo "  make bench-store            MfsStore lane harness (raw/schema/WAL/checkpoint/replay)"
 	@echo "  make bench-realistic        mixed workload (Redis-replacement profile)"
 	@echo "  make bench-realistic-stable same as above with MFS_RUNS=10 distribution"
 	@echo "  make bench-criterion        criterion-driven microbenches"
@@ -81,7 +81,7 @@ lint: clippy
 doc:
 	$(CARGO) doc --workspace --all-features --no-deps --open
 
-bench: bench-hot bench-wal bench-slot-writeback bench-s3fifo-tuning bench-queued-write bench-object-store bench-schema-store bench-local-db bench-nosql-engine bench-object-realistic bench-realistic bench-probe
+bench: bench-hot bench-wal bench-slot-writeback bench-s3fifo-tuning bench-queued-write bench-object-store bench-schema-store bench-local-db bench-store bench-object-realistic bench-realistic bench-probe
 
 bench-hot:
 	$(BENCH) -p mfs-core --bench mfs_hot_path
@@ -107,8 +107,8 @@ bench-schema-store:
 bench-local-db:
 	$(BENCH) -p mfs-compat --bench local_db_sqlite_kv
 
-bench-nosql-engine:
-	$(BENCH) -p mfs-db --bench mfs_nosql_engine
+bench-store:
+	$(BENCH) -p mfs-store --bench mfs_store_bench
 
 bench-object-realistic:
 	$(BENCH) -p mfs-compat --bench mfs_object_realistic

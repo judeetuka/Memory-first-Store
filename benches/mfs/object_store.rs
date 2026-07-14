@@ -5,7 +5,7 @@ use mfs_core::durability::{WalBackend, WalConfig};
 use mfs_core::slot_writeback::SlotWriteBehindCache;
 use mfs_core::writeback::{WriteBehindCache, WriteBehindConfig};
 use mfs_core::{FlushBackend, FlushRecord};
-use mfs_db::value::{MfsValue, MfsValueCodec};
+use mfs_store::value::{MfsValue, MfsValueCodec};
 use std::collections::BTreeMap;
 use std::fs;
 use std::hint::black_box;

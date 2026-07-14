@@ -39,7 +39,7 @@ use mfs_compat::object_store_durability::{
 use mfs_core::durability::{WalBackend, WalConfig};
 use mfs_core::writeback::{WriteBehindConfig, WriteBehindStats};
 use mfs_core::{FlushBackend, FlushRecord};
-use mfs_db::value::{MfsValue, MfsValueCodec, SortedSetEntry};
+use mfs_store::value::{MfsValue, MfsValueCodec, SortedSetEntry};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::hint::black_box;

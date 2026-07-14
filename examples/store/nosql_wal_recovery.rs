@@ -1,9 +1,9 @@
-//! Raw NoSQL engine WAL recovery.
+//! Raw hot store WAL recovery.
 //!
-//! Run with `cargo run -p mfs-db --release --example nosql_wal_recovery`.
+//! Run with `cargo run -p mfs-store --release --example nosql_wal_recovery`.
 
-use mfs_db::engine::{
-    DocumentVersion, EngineConfig, Lsn, NoSqlEngine, RawKey, RawValue, RawWalSegmentWriter,
+use mfs_store::store::{
+    DocumentVersion, MfsStoreConfig, Lsn, MfsStore, RawKey, RawValue, RawWalSegmentWriter,
     ReadOptions, replay_raw_wal,
 };
 
@@ -33,9 +33,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("wrote and synced WAL at {}", wal.path().display());
     }
 
-    let recovered = NoSqlEngine::open_memory(EngineConfig {
+    let recovered = MfsStore::open_memory(MfsStoreConfig {
         raw_initial_capacity: 16,
-        ..EngineConfig::default()
+        ..MfsStoreConfig::default()
     })?;
     let stats = replay_raw_wal(&wal_path, &recovered)?;
     assert_eq!(stats.records, 3);

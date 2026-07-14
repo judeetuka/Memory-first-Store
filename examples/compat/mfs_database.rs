@@ -15,8 +15,8 @@ use mfs_compat::schema_flush::{
 };
 use mfs_compat::schema_store::{SchemaKey, SchemaStore};
 use mfs_core::{FlushBackend, FlushRecord, Operation};
-use mfs_db::schema::{Reference, Schema, SchemaField, SchemaFieldType};
-use mfs_db::schema_value::SchemaValue;
+use mfs_store::schema::{Reference, Schema, SchemaField, SchemaFieldType};
+use mfs_store::schema_value::SchemaValue;
 use rusqlite::types::Value;
 use rusqlite::{Connection, params_from_iter};
 use std::collections::HashMap;

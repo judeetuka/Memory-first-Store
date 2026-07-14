@@ -1,18 +1,21 @@
 # memory-first-store
 
-> ⚠️ **Purpose-built**: This project was created as the data engine for a
-> Spiking Neural Network / GNN engine and as an embedded SQLite replacement
-> for specific workloads. It is opinionated, fixed-capacity, and memory-first
-> by design — it may not be the right fit for every use case. See
+> ⚠️ **Hot storage, not a database**: This project was purpose-built as the
+> data engine for an experimental cognitive SNN/GNN hybrid engine. It is an
+> in-memory hot storage layer — not a replacement for SQLite, fjall, or
+> RocksDB. Those engines are optimized for IO-bound and space-efficient
+> workloads over large data sets. MfS is fixed-capacity, memory-first, and
+> designed for the hot path where data fits in RAM. See
 > [Known Limitations](docs/architecture.md) for details.
 
 High-throughput, in-process Rust storage primitives for hot data: lock-free
 concurrent caches with optional write-behind to a durable backend, plus a
 dense numeric lane that runs at L1 cache latency.
 
-Built as an embedded alternative to Redis for cases where the cache lives in
-the same process as the application and the network round-trip is the
-bottleneck. Latencies are measured in tens of nanoseconds, not microseconds.
+Think of it as the hot layer in a tiered storage architecture: what Redis
+is to disk, MfS is to Redis — except MfS lives in your process and skips
+the network round-trip entirely. Latencies are measured in tens of
+nanoseconds, not microseconds.
 
 > Looking for the full benchmark catalogue with raw numbers, hardware
 > specs, and the data each benchmark operates on?
@@ -179,24 +182,24 @@ need dirty tracking ────┤                                             
 Runnable examples are registered through workspace crates:
 
 MfS is Core-first. Start with `mfs-core`, add `mfs-neural` for hot-path
-dense numeric layers, and add `mfs-db` when you need the optional
-durable NoSQL layer. Use `mfs-compat` only for compatibility and legacy
+dense numeric layers, and add `mfs-store` when you need the optional
+durable storage layer. Use `mfs-compat` only for compatibility and legacy
 adapters, including SQLite-facing pieces.
 
 Use workspace crates in this order:
 
 1. `mfs-core`: cache/store primitives, write-behind, and WAL.
 2. `mfs-neural`: dense numeric layers built on core.
-3. `mfs-db`: optional durable NoSQL engine built on core.
+3. `mfs-store`: optional durable hot storage layer built on core.
 4. `mfs-compat`: compatibility and legacy adapters.
 
-NoSQL engine examples:
+Durable hot storage examples:
 
 ```bash
-cargo run -p mfs-db --release --example nosql_raw_kv        # raw bytes, versions, conflicts, delete
-cargo run -p mfs-db --release --example nosql_schema_mode   # schema validation plus put/get
-cargo run -p mfs-db --release --example nosql_wal_recovery  # raw WAL sync and replay
-cargo run -p mfs-db --release --example nosql_checkpoint_recovery  # checkpoint plus WAL suffix replay
+cargo run -p mfs-store --release --example nosql_raw_kv        # raw bytes, versions, conflicts, delete
+cargo run -p mfs-store --release --example nosql_schema_mode   # schema validation plus put/get
+cargo run -p mfs-store --release --example nosql_wal_recovery  # raw WAL sync and replay
+cargo run -p mfs-store --release --example nosql_checkpoint_recovery  # checkpoint plus WAL suffix replay
 ```
 
 SQLite remains as a compatibility path:
@@ -211,12 +214,12 @@ cargo run -p mfs-compat --release --example sqlite_vfs_page_adapter  # page-stor
 Other cache and lane examples:
 
 ```bash
-cargo run -p mfs-core --release --example read_through_cache  # Redis-replacement pattern
+cargo run -p mfs-core --release --example read_through_cache  # read-through cache pattern
 cargo run -p mfs-core --release --example wal_recovery        # crash recovery
 cargo run -p mfs-core --release --example dense_counters      # atomic counters at L1 latency
 ```
 
-Start with `nosql_raw_kv` for the raw engine path or
+Start with `nosql_raw_kv` for the raw hot storage path or
 `nosql_schema_mode` for schema-aware documents. Use the SQLite examples
 only when checking SQL persistence or the VFS compatibility layer.
 
@@ -438,9 +441,9 @@ make ci                       # fmt-check, clippy, and workspace tests
 make test                     # cargo test --workspace --all-features
 make bench                    # registered custom-harness benches
 make bench-hot                # raw read/write hot-path microbenches (min/median/max over 7 trials)
-make bench-nosql-engine       # NoSQL engine lane harness
+make bench-nosql-engine       # hot storage lane harness
 make bench-schema-store       # schema CRUD/index/include/WAL/SQL flush bench
-make bench-realistic          # mixed workload (Redis-replacement profile), single run
+make bench-realistic          # mixed workload (hot cache profile), single run
 make bench-realistic-stable   # same with MFS_RUNS=10 — prints distribution + CV
 make bench-criterion          # criterion-driven microbenches with confidence intervals
 make bench-competitors        # criterion head-to-head vs Rust competitors

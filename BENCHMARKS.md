@@ -962,7 +962,7 @@ power-loss durable before dirty state is cleaned.
 
 Fresh T460 run on the same laptop class as the earlier tables: i5-6300U,
 2c/4t, `tsc`, governor=`powersave`. This refresh reran the core MfS hot
-paths, NoSQL engine lanes, the new local library-only DB comparison, the
+paths, hot storage lanes, the new local library-only DB comparison, the
 probe diagnostic, and the full `bench-competitors` target.
 
 Commands run:
@@ -1005,7 +1005,7 @@ oversubscribes the 2c/4t CPU and is best read as scheduler-stress data.
 | 4 | 162.67 ns / 6.15 M | 93.90 ns / 10.7 M | **23.41 ns / 42.7 M** | 35.29 ns / 28.3 M |
 | 8 | 152.36 ns / 6.56 M | 103.46 ns / 9.67 M | 26.55 ns / 37.7 M | **27.94 ns / 35.8 M** |
 
-### MfS NoSQL engine (`mfs_nosql_engine`)
+### MfS hot store (`mfs_store_bench`)
 
 Single-threaded, 1024 keys, 128-byte values, 5 trials.
 

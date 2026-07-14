@@ -1,12 +1,12 @@
 //! Multi-get, count, and partial-update APIs for schema-mode documents.
 //!
-//! Run with `cargo run -p mfs-db --release --example nosql_query`.
+//! Run with `cargo run -p mfs-store --release --example nosql_query`.
 
-use mfs_db::engine::{
-    FieldUpdate, FieldUpdateOp, NoSqlEngine, ReadOptions, WriteOptions,
+use mfs_store::store::{
+    FieldUpdate, FieldUpdateOp, MfsStore, ReadOptions, WriteOptions,
 };
-use mfs_db::schema::{Schema, SchemaField, SchemaFieldType};
-use mfs_db::schema_value::SchemaValue;
+use mfs_store::schema::{Schema, SchemaField, SchemaFieldType};
+use mfs_store::schema_value::SchemaValue;
 
 fn users_schema() -> Schema {
     let mut id = SchemaField::new("id", SchemaFieldType::String);
@@ -40,7 +40,7 @@ fn string_field(doc: &SchemaValue, field: &str) -> String {
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let schema = users_schema();
-    let engine = NoSqlEngine::open_memory(Default::default())?;
+    let engine = MfsStore::open_memory(Default::default())?;
     engine.create_schema_collection(&schema)?;
     println!("created schema collection `{}`\n", schema.name);
 

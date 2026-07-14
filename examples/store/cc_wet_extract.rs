@@ -5,11 +5,11 @@
 //! per line to stdout.
 //!
 //! Usage:
-//!   cargo run -p mfs-db --release --example cc_wet_extract -- \
+//!   cargo run -p mfs-store --release --example cc_wet_extract -- \
 //!       /tmp/mfs-bench/data/ > /tmp/mfs-bench/extracted.jsonl
 //!
 //! Or write directly to a file:
-//!   cargo run -p mfs-db --release --example cc_wet_extract -- \
+//!   cargo run -p mfs-store --release --example cc_wet_extract -- \
 //!       /tmp/mfs-bench/data/ /tmp/mfs-bench/extracted.jsonl
 //!
 //! Output format (JSON Lines):
@@ -124,7 +124,7 @@ fn format_duration(d: std::time::Duration) -> String {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: cargo run -p mfs-db --release --example cc_wet_extract -- <data_dir> [output_file]");
+        eprintln!("Usage: cargo run -p mfs-store --release --example cc_wet_extract -- <data_dir> [output_file]");
         eprintln!();
         eprintln!("Extracts URL→content pairs from Common Crawl WET files into JSON Lines.");
         eprintln!("If no output_file is given, writes to stdout.");

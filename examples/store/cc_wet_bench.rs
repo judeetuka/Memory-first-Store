@@ -1,14 +1,14 @@
 //! Multi-engine search benchmark: Common Crawl WET dataset.
 //!
-//! Compares mfs_db, SQLite (in-memory), redb, and fjall on the same 141K-record
+//! Compares mfs_store, SQLite (in-memory), redb, and fjall on the same 141K-record
 //! URL->content dataset from CC-MAIN-2025-33, measuring point-lookup throughput
 //! across 4 access patterns: sequential, random, 2-thread, 4-thread.
 //!
 //! Run:
-//!   cargo run -p mfs-db --release --example cc_wet_bench -- /tmp/mfs-bench/extracted.jsonl
+//!   cargo run -p mfs-store --release --example cc_wet_bench -- /tmp/mfs-bench/extracted.jsonl
 //!
 //! Self-contained (download + extract + bench):
-//!   cargo run -p mfs-db --release --example cc_wet_bench -- --crawl CC-MAIN-2025-33 /tmp/mfs-bench/
+//!   cargo run -p mfs-store --release --example cc_wet_bench -- --crawl CC-MAIN-2025-33 /tmp/mfs-bench/
 //!
 //! Hardware: i5-6300U (Skylake, 2c/4t, L1 64KB, L2 512KB, L3 3MB)
 //! Dataset:  ~1.2 GB, 141,858 URL->content records, avg 8.5 KB per value
@@ -275,25 +275,25 @@ trait EngineRunner: Send + Sync {
 }
 
 // ---- MfS DB ----
-struct MfsEngine(Option<mfs_db::engine::NoSqlEngine>);
+struct MfsEngine(Option<mfs_store::store::MfsStore>);
 
 impl EngineRunner for MfsEngine {
     fn load(&mut self, records: &[WetRecord]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
-        use mfs_db::engine::*;
+        use mfs_store::store::*;
         let cap = (records.len() * 2).max(1_000_000);
-        let engine = NoSqlEngine::open_memory(EngineConfig { raw_initial_capacity: cap, ..EngineConfig::default() })?;
+        let engine = MfsStore::open_memory(MfsStoreConfig { raw_initial_capacity: cap, ..MfsStoreConfig::default() })?;
         engine.create_raw_collection("cc")?;
         let keys: Vec<Vec<u8>> = records.iter().map(|r| r.url.as_bytes().to_vec()).collect();
         for (i, rec) in records.iter().enumerate() {
             engine.put_raw("cc", RawKey::from(rec.url.as_bytes()), RawValue::from(rec.content.as_slice()), WriteOptions::default())?;
-            if i > 0 && i % 10000 == 0 { eprint!("\r  mfs_db: ingesting {}/{}", i, records.len()); }
+            if i > 0 && i % 10000 == 0 { eprint!("\r  mfs_store: ingesting {}/{}", i, records.len()); }
         }
         self.0 = Some(engine);
-        eprintln!("\r  mfs_db: ingesting {}/{}", records.len(), records.len());
+        eprintln!("\r  mfs_store: ingesting {}/{}", records.len(), records.len());
         Ok(keys)
     }
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
-        use mfs_db::engine::*;
+        use mfs_store::store::*;
         let eng = self.0.as_ref().unwrap();
         match eng.get_raw("cc", &RawKey::from(key), ReadOptions::default())? {
             Some(r) => Ok(Some(r.value.as_bytes().to_vec())),
@@ -407,7 +407,7 @@ impl EngineRunner for FjallEngine {
 fn bench_mfs(records: &[WetRecord], total_data_gb: f64) -> Result<(), Box<dyn std::error::Error>> {
     let mut eng = MfsEngine(None);
     let keys = eng.load(records)?;
-    run_all_patterns("mfs_db (ConcurrentMap)", eng, &keys, records, total_data_gb)
+    run_all_patterns("mfs_store (ConcurrentMap)", eng, &keys, records, total_data_gb)
 }
 
 fn bench_sqlite(records: &[WetRecord], total_data_gb: f64) -> Result<(), Box<dyn std::error::Error>> {

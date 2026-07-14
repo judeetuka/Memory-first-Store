@@ -1,9 +1,9 @@
-use mfs_db::engine::{
-    DocumentVersion, DurabilityMode, EngineConfig, EngineError, Lsn, NoSqlEngine, RawKey, RawValue,
+use mfs_store::store::{
+    DocumentVersion, DurabilityMode, MfsStoreConfig, StoreError, Lsn, MfsStore, RawKey, RawValue,
     RawWalSegmentWriter, ReadOptions, WriteOptions, replay_raw_wal, write_raw_checkpoint_to_dir,
 };
-use mfs_db::schema::{Schema, SchemaField, SchemaFieldType};
-use mfs_db::schema_value::SchemaValue;
+use mfs_store::schema::{Schema, SchemaField, SchemaFieldType};
+use mfs_store::schema_value::SchemaValue;
 use std::fs;
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
@@ -36,31 +36,31 @@ struct Stats {
 }
 
 struct RawReadState {
-    engine: NoSqlEngine,
+    engine: MfsStore,
     keys: Vec<RawKey>,
 }
 
 struct RawWriteState {
-    engine: NoSqlEngine,
+    engine: MfsStore,
     keys: Vec<RawKey>,
     values: Vec<RawValue>,
 }
 
 struct SchemaWriteState {
-    engine: NoSqlEngine,
+    engine: MfsStore,
     schema: Schema,
     documents: Vec<SchemaValue>,
 }
 
 struct WalWriteState {
-    engine: NoSqlEngine,
+    engine: MfsStore,
     path: PathBuf,
     keys: Vec<RawKey>,
     values: Vec<RawValue>,
 }
 
 struct CheckpointWriteState {
-    engine: NoSqlEngine,
+    engine: MfsStore,
     dir: PathBuf,
 }
 
@@ -104,7 +104,7 @@ impl Stats {
 fn main() {
     let config = BenchConfig::from_env();
     println!(
-        "=== NoSqlEngine lane benchmark (key_count={}, value_size={}, threads={}, trials={}) ===",
+        "=== MfsStore lane benchmark (key_count={}, value_size={}, threads={}, trials={}) ===",
         config.key_count, config.value_size, config.threads, config.trials,
     );
     println!(
@@ -181,7 +181,7 @@ fn bench_expected_version_conflict_put(config: BenchConfig) -> Stats {
                     )
                     .expect_err("stale expected version must conflict");
                 match err {
-                    EngineError::Conflict { .. } => conflicts += 1,
+                    StoreError::Conflict { .. } => conflicts += 1,
                     other => panic!("unexpected conflict-lane error: {other}"),
                 }
             }
@@ -517,13 +517,13 @@ fn put_raw_values(
 }
 
 trait RawWriteParts {
-    fn engine(&self) -> &NoSqlEngine;
+    fn engine(&self) -> &MfsStore;
     fn keys(&self) -> &[RawKey];
     fn values(&self) -> &[RawValue];
 }
 
 impl RawWriteParts for RawWriteState {
-    fn engine(&self) -> &NoSqlEngine {
+    fn engine(&self) -> &MfsStore {
         &self.engine
     }
 
@@ -537,7 +537,7 @@ impl RawWriteParts for RawWriteState {
 }
 
 impl RawWriteParts for WalWriteState {
-    fn engine(&self) -> &NoSqlEngine {
+    fn engine(&self) -> &MfsStore {
         &self.engine
     }
 
@@ -551,7 +551,7 @@ impl RawWriteParts for WalWriteState {
 }
 
 fn preload_raw(
-    engine: &NoSqlEngine,
+    engine: &MfsStore,
     keys: &[RawKey],
     values: &[RawValue],
     durability: DurabilityMode,
@@ -575,14 +575,14 @@ fn open_engine(
     raw_initial_capacity: usize,
     durability: DurabilityMode,
     wal_path: Option<PathBuf>,
-) -> NoSqlEngine {
-    NoSqlEngine::open_memory(EngineConfig {
+) -> MfsStore {
+    MfsStore::open_memory(MfsStoreConfig {
         raw_initial_capacity,
         durability,
         wal_path,
-        ..EngineConfig::default()
+        ..MfsStoreConfig::default()
     })
-    .expect("open NoSqlEngine")
+    .expect("open MfsStore")
 }
 
 fn raw_keys(count: usize, trial: usize) -> Vec<RawKey> {
@@ -675,7 +675,7 @@ fn tmp_path(label: &str, trial: usize, suffix: &str) -> PathBuf {
         .expect("system time after unix epoch")
         .as_nanos();
     path.push(format!(
-        "mfs_nosql_engine_bench_{label}_{trial}_{pid}_{ts}.{suffix}"
+        "mfs_store_bench_{label}_{trial}_{pid}_{ts}.{suffix}"
     ));
     path
 }
