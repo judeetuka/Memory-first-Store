@@ -1,6 +1,6 @@
 # mfs-compat: Compatibility and Legacy Adapters
 
-`mfs-compat` sits on top of `mfs-core` and `mfs-db`, providing higher-level
+`mfs-compat` sits on top of `mfs-core` and `mfs-store`, providing higher-level
 APIs that mimic familiar external systems. If your application already thinks
 in Redis data structures, SQL tables, or SQLite page layouts, this crate lets
 you keep that mental model while running entirely in-process.
@@ -35,15 +35,15 @@ You're building an in-process cache or store and one of these applies:
   [`mfs-core`](../core/overview.md).
 - You need dense 8-byte numeric lanes. Go to
   [`mfs-neural`](../neural/overview.md).
-- You want the raw NoSQL engine without schema validation. Use
-  [`mfs-db`](../db/overview.md) directly.
+- You want the raw hot storage layer without schema validation. Use
+  [`mfs-store`](../db/overview.md) directly.
 
 ## Crate dependency order
 
 ```
 mfs-core          (caches, write-behind, WAL)
     |
-mfs-db            (value types, schema definitions)
+mfs-store            (value types, schema definitions)
     |
 mfs-compat        (this crate: object stores, schema store, page store, VFS)
 ```

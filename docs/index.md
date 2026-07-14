@@ -1,6 +1,6 @@
 # MfS Documentation
 
-MfS (Memory-first Store) is a high-throughput in-process Rust data engine.
+MfS (Memory-first Store) is a high-throughput in-process Rust hot storage library.
 It provides lock-free and write-behind caching primitives, an optional
 write-ahead log, a schema layer with secondary indexes, and a Redis-like
 object store — all as library crates with no external service dependency.
@@ -22,12 +22,12 @@ one concept. See the [examples index](examples/index.md) for the full list.
 - **[mfs-neural](neural/overview.md)** — Dense numeric layers for 8-byte
   value types: `DenseKvMap`, `DenseWriteBehindMap`, `BucketedIndex`.
   Built on top of `mfs-core`.
-- **[mfs-db](db/overview.md)** — NoSQL engine: raw key-value mode,
+- **[mfs-store](store/overview.md)** — Hot storage layer: raw key-value mode,
   schema-validated documents, WAL + checkpoint recovery, Redis-like
   value types. Built on top of `mfs-core`.
 - **[mfs-compat](compat/overview.md)** — Compatibility layer: Redis-like
   object store, schema-aware document store, SQLite VFS adapter,
-  SQL flush planning. Built on top of `mfs-core` and `mfs-db`.
+  SQL flush planning. Built on top of `mfs-core` and `mfs-store`.
 
 ## Cross-Cutting Guides
 

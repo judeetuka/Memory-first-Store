@@ -9,7 +9,7 @@ to SQLite or other SQL backends.
 
 A collection of named schemas, each backed by a `WriteBehindCache` keyed
 on the schema's primary key. Documents are `SchemaValue` objects (from
-`mfs-db`). Every put, upsert, create, update, and delete validates the
+`mfs-store`). Every put, upsert, create, update, and delete validates the
 document against the schema, maintains secondary indexes, and enforces
 unique constraints.
 
@@ -41,7 +41,7 @@ let store = SchemaStore::with_capacity(100_000);
 ## Registering a schema
 
 ```rust
-use mfs_db::schema::{Schema, SchemaField, SchemaFieldType, Reference};
+use mfs_store::schema::{Schema, SchemaField, SchemaFieldType, Reference};
 
 let mut id = SchemaField::new("id", SchemaFieldType::String);
 id.primary = true;
@@ -68,7 +68,7 @@ Each schema must have exactly one primary field. Indexed fields support
 ### Create (reject if exists)
 
 ```rust
-use mfs_db::schema_value::SchemaValue;
+use mfs_store::schema_value::SchemaValue;
 
 let doc = SchemaValue::object([
     ("id".to_string(), SchemaValue::String("u1".into())),
@@ -363,4 +363,4 @@ for storage in `mfs_key`.
 - [Object Store](object-store.md) for untyped Redis-like storage.
 - [Mutable Object Store](mutable-object-store.md) for growable storage with TTL.
 - [SQLite VFS](sqlite-vfs.md) for the page-level SQLite adapter.
-- [mfs-db: Schema](../db/overview.md) for schema definition types.
+- [mfs-store: Schema](../db/overview.md) for schema definition types.

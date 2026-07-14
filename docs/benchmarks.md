@@ -198,7 +198,7 @@ Each engine point-queries every key once per trial; 5 trials, min reported.
 
 | Engine | Sequential | Random | 2-thread | 4-thread | vs SQLite |
 |--- |---:|---:|---:|---:|---:|
-| **mfs_db** (ConcurrentMap) | **687 ns** | **1,038 ns** | **543 ns** | **374 ns** | **14.3× faster** |
+| **mfs_store** (ConcurrentMap) | **687 ns** | **1,038 ns** | **543 ns** | **374 ns** | **14.3× faster** |
 | fjall (LSM-tree) | 3,462 ns | 3,822 ns | 2,131 ns | 1,147 ns | 2.8× faster |
 | redb | 4,796 ns | 5,102 ns | 3,005 ns | 1,843 ns | 2.0× faster |
 | SQLite (in-memory) | 9,815 ns | 18,105 ns | 17,444 ns | 17,769 ns | baseline |
@@ -207,7 +207,7 @@ Each engine point-queries every key once per trial; 5 trials, min reported.
 
 | Engine | Sequential | Random | 2-thread | 4-thread | vs SQLite |
 |--- |---:|---:|---:|---:|---:|
-| **mfs_db** (ConcurrentMap) | **1,905 ns** | **2,425 ns** | **1,445 ns** | **1,252 ns** | **20.7× faster** |
+| **mfs_store** (ConcurrentMap) | **1,905 ns** | **2,425 ns** | **1,445 ns** | **1,252 ns** | **20.7× faster** |
 | fjall (LSM-tree) | 4,738 ns | 6,545 ns | 3,570 ns | 3,819 ns | 8.3× faster |
 | redb | 15,220 ns | 13,107 ns | 8,321 ns | 6,317 ns | 2.6× faster |
 | SQLite (in-memory) | 39,414 ns | 67,793 ns | 58,820 ns | 56,249 ns | baseline |
@@ -219,7 +219,7 @@ vs 36.91 ns) because each record is 8.5 KB vs 128 B and the working set
 exceeds L3 cache, but the **relative ranking is identical** across every
 pattern and both platforms.
 
-*Results from `cargo run -p mfs-db --release --example cc_wet_bench -- <jsonl>`.
+*Results from `cargo run -p mfs-store --release --example cc_wet_bench -- <jsonl>`.
 Dataset auto-downloads via `--crawl CC-MAIN-2025-33 <dir>`.*
 
 ## Write-Ahead Log
@@ -255,7 +255,7 @@ background auto-flusher.
 | Delete p50 | 180 ns |
 | Flush rate | 1.70 M rec/s |
 
-This workload simulates a hot Redis-replacement pattern: mostly reads to
+This workload simulates a hot read-through cache pattern: mostly reads to
 a memory-first working set, with background write-behind persistence.
 
 ### T460

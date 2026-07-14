@@ -10,24 +10,24 @@ See [Examples](examples/index.md) for all runnable examples.
 Runnable examples are registered through workspace crates:
 
 MfS is Core-first. Start with `mfs-core`, add `mfs-neural` for hot-path
-dense numeric layers, and add `mfs-db` when you need the optional
-durable NoSQL layer. Use `mfs-compat` only for compatibility and legacy
+dense numeric layers, and add `mfs-store` when you need the optional
+durable hot storage layer. Use `mfs-compat` only for compatibility and legacy
 adapters, including SQLite-facing pieces.
 
 Use workspace crates in this order:
 
 1. `mfs-core`: cache/store primitives, write-behind, and WAL.
 2. `mfs-neural`: dense numeric layers built on core.
-3. `mfs-db`: optional durable NoSQL engine built on core.
+3. `mfs-store`: optional durable hot storage layer built on core.
 4. `mfs-compat`: compatibility and legacy adapters.
 
-NoSQL engine examples:
+Durable hot storage examples:
 
 ```bash
-cargo run -p mfs-db --release --example nosql_raw_kv        # raw bytes, versions, conflicts, delete
-cargo run -p mfs-db --release --example nosql_schema_mode   # schema validation plus put/get
-cargo run -p mfs-db --release --example nosql_wal_recovery  # raw WAL sync and replay
-cargo run -p mfs-db --release --example nosql_checkpoint_recovery  # checkpoint plus WAL suffix replay
+cargo run -p mfs-store --release --example nosql_raw_kv        # raw bytes, versions, conflicts, delete
+cargo run -p mfs-store --release --example nosql_schema_mode   # schema validation plus put/get
+cargo run -p mfs-store --release --example nosql_wal_recovery  # raw WAL sync and replay
+cargo run -p mfs-store --release --example nosql_checkpoint_recovery  # checkpoint plus WAL suffix replay
 ```
 
 SQLite remains as a compatibility path:
@@ -42,12 +42,12 @@ cargo run -p mfs-compat --release --example sqlite_vfs_page_adapter  # page-stor
 Other cache and lane examples:
 
 ```bash
-cargo run -p mfs-core --release --example read_through_cache  # Redis-replacement pattern
+cargo run -p mfs-core --release --example read_through_cache  # read-through cache pattern
 cargo run -p mfs-core --release --example wal_recovery        # crash recovery
 cargo run -p mfs-core --release --example dense_counters      # atomic counters at L1 latency
 ```
 
-Start with `nosql_raw_kv` for the raw engine path or
+Start with `nosql_raw_kv` for the raw hot storage path or
 `nosql_schema_mode` for schema-aware documents. Use the SQLite examples
 only when checking SQL persistence or the VFS compatibility layer.
 

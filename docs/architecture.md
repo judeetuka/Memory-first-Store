@@ -6,7 +6,7 @@
                          memory-first-store (facade)
                         /        |        \
                        /         |         \
-              mfs-compat      mfs-db    mfs-neural
+              mfs-compat      mfs-store    mfs-neural
                   /    \         |         /
                  /      \        |        /
             mfs-core (foundation — not a workspace member dependency of itself)
@@ -18,8 +18,8 @@
 |-------|-------|------|
 | Foundation | `mfs-core` | `ConcurrentMap`, `MemoryFirstStore`, `LockFreeCache`, `WriteBehindCache`, `DenseU64Lane`, `InlineU64Map`, WAL (`durability`), S3-FIFO policy cache |
 | Domain | `mfs-neural` | Dense numeric storage over mfs-core: `DenseKvMap`, `DenseWriteBehindMap`, `BucketedIndex` |
-| Domain | `mfs-db` | NoSQL engine over mfs-core: `NoSqlEngine`, `Schema`, `MfsValue`, checkpoint + WAL recovery |
-| Integration | `mfs-compat` | Compatibility adapters over mfs-core + mfs-db: `MfsObjectStore`, `SchemaStore`, SQLite VFS |
+| Domain | `mfs-store` | Durable hot storage over mfs-core: `MfsStore`, `Schema`, `MfsValue`, checkpoint + WAL recovery |
+| Integration | `mfs-compat` | Compatibility adapters over mfs-core + mfs-store: `MfsObjectStore`, `SchemaStore`, SQLite VFS |
 | Facade | `memory-first-store` | Re-exports all public types from underlying crates |
 
 ## Feature Flags
@@ -29,9 +29,9 @@
 | mfs-core | `ahash` | `ahash::RandomState` as `AHashState` (high-performance, non-DoS-safe hashing) |
 | mfs-core | `experimental` | `AtomicWriteBehindCache`, `SlotWriteBehindCache` (unstable backends) |
 | mfs-neural | `experimental` | `ConcurrentDenseWriteBehindMap` (experimental write-behind index) |
-| mfs-db | `json` | JSON support for schema definitions |
+| mfs-store | `json` | JSON support for schema definitions |
 | memory-first-store | `ahash` | Pass-through to `mfs-core/ahash` |
-| memory-first-store | `json` | Pass-through to `mfs-db/json` |
+| memory-first-store | `json` | Pass-through to `mfs-store/json` |
 
 ## Design Philosophy
 

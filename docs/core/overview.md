@@ -19,7 +19,7 @@ The hot path is in-process RAM only. Nanosecond timings apply to cached memory o
 
 Use `mfs-core` when you need an embedded, in-process cache that lives in the same process as your application. It replaces the Redis round-trip for hot data, bringing latencies from microseconds down to tens of nanoseconds.
 
-Start with `mfs-core` as the first workspace dependency. Add `mfs-neural` for dense numeric layers, `mfs-db` for the optional durable NoSQL engine, and `mfs-compat` only for legacy adapters.
+Start with `mfs-core` as the first workspace dependency. Add `mfs-neural` for dense numeric layers, `mfs-store` for the optional durable hot storage layer, and `mfs-compat` only for legacy adapters.
 
 ## Key design decisions
 

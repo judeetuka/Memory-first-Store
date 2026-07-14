@@ -20,7 +20,7 @@ Or via Make:
 make build
 ```
 
-This compiles all workspace crates (`mfs-core`, `mfs-neural`, `mfs-db`,
+This compiles all workspace crates (`mfs-core`, `mfs-neural`, `mfs-store`,
 `mfs-compat`) with every feature flag enabled.
 
 ## Testing
@@ -128,11 +128,11 @@ For performance issues, also include:
 crates/
   mfs-core/        Foundation: concurrent maps, caches, WAL, S3-FIFO
   mfs-neural/      Dense numeric layers (DenseKvMap, DenseWriteBehindMap)
-  mfs-db/          NoSQL engine: raw KV, schema mode, checkpoint recovery
+  mfs-store/          Hot storage layer: raw KV, schema mode, checkpoint recovery
   mfs-compat/      Compatibility: object store, schema store, SQLite VFS
 examples/
   core/            Core crate examples
-  db/              NoSQL engine examples
+  store/           Hot storage examples
   compat/          Compatibility layer examples
   neural/          Dense numeric layer examples
 docs/              Documentation (this directory)

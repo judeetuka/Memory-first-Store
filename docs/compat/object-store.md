@@ -71,7 +71,7 @@ store.set_json_bytes(b"doc".to_vec(), br#"{"key":"value"}"#);
 ### Generic put and get
 
 ```rust
-use mfs_db::value::MfsValue;
+use mfs_store::value::MfsValue;
 
 store.put(b"key".to_vec(), MfsValue::String("hello".into()));
 let value: Option<Arc<MfsValue>> = store.get(b"key");
@@ -164,7 +164,7 @@ let removed = store.set_remove(b"online".to_vec(), b"bob".to_vec()).unwrap();
 ## Sorted set operations
 
 ```rust
-use mfs_db::value::SortedSetEntry;
+use mfs_store::value::SortedSetEntry;
 
 store.set_sorted_set(b"board".to_vec(), vec![
     SortedSetEntry { score: 100.0, member: b"alice".to_vec() },
