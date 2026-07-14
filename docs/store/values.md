@@ -1,6 +1,6 @@
 # Values
 
-Two value models for `mfs-db`: `MfsValue` for the object-store API and `SchemaValue` for schema-mode documents.
+Two value models for `mfs-store`: `MfsValue` for the object-store API and `SchemaValue` for schema-mode documents.
 
 ## `MfsValue`: Redis-like value model
 
@@ -222,8 +222,8 @@ pub fn validate_codec_safe(value: &SchemaValue) -> Result<(), SchemaValueError>;
 ## Code example
 
 ```rust
-use mfs_db::{MfsValue, encode_value, decode_value};
-use mfs_db::{SchemaValue, encode_schema_value, decode_schema_value};
+use mfs_store::{MfsValue, encode_value, decode_value};
+use mfs_store::{SchemaValue, encode_schema_value, decode_schema_value};
 
 // MfsValue round-trip
 let value = MfsValue::String("hello".to_string());

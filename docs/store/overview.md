@@ -1,32 +1,32 @@
-# mfs-db Overview
+# mfs-store Overview
 
-Embedded, single-process NoSQL engine for `memory-first-store`.
+In-memory hot storage layer with optional durability for `memory-first-store`.
 
-`mfs-db` is the optional durable storage layer built on top of `mfs-core`. It provides two access modes over a shared storage kernel: raw key-value storage for opaque byte pairs, and schema mode for validated documents with secondary indexes and declared references.
+`mfs-store` is the optional durable hot storage layer built on top of `mfs-core`. It provides two access modes over a shared storage kernel: raw key-value storage for opaque byte pairs, and schema mode for validated documents with secondary indexes and declared references.
 
-## What is mfs-db
+## What is mfs-store
 
-`mfs-db` is an embedded NoSQL engine. It runs in the caller's process and owns no network protocol. The engine has two front doors:
+`mfs-store` is an embedded, in-process hot storage layer. It runs in the caller's process and owns no network protocol. The store has two front doors:
 
 - **Raw KV mode** stores opaque byte keys and byte values with per-key versioning. No schema validation, no indexes.
 - **Schema mode** validates `Schema` definitions and `SchemaValue` documents before writing them to the same underlying storage. Adds secondary indexes and declared references on top of the shared kernel.
 
 Both modes share the same primary-record storage, per-key version clock, durability path, checkpoint path, and recovery path.
 
-## When to use mfs-db
+## When to use mfs-store
 
-Use `mfs-db` when you need durable, embedded NoSQL storage in the same process as your application. It sits above `mfs-core` in the workspace dependency order:
+Use `mfs-store` when you need durable in-memory hot storage in the same process as your application. It sits above `mfs-core` in the workspace dependency order:
 
 1. `mfs-core` -- cache primitives, write-behind, reference WAL.
 2. `mfs-neural` -- dense numeric layers.
-3. `mfs-db` -- durable NoSQL engine.
+3. `mfs-store` -- durable hot storage layer.
 4. `mfs-compat` -- compatibility and legacy adapters.
 
-Start with `mfs-core` for in-process caching. Add `mfs-db` when you need crash recovery, schema validation, or secondary indexes.
+Start with `mfs-core` for in-process caching. Add `mfs-store` when you need crash recovery, schema validation, or secondary indexes.
 
-## Engine contract (v1)
+## Store contract (v1)
 
-The v1 contract is frozen in `EngineSemantics` and defines what later engine modules must preserve:
+The v1 contract is frozen in `StoreSemantics` and defines what later store modules must preserve:
 
 | Aspect | v1 Contract |
 |---|---|
@@ -55,7 +55,7 @@ v1 intentionally does not provide: SQL compatibility, network server, distribute
 
 | Module | Description |
 |---|---|
-| `engine` | Core engine: `NoSqlEngine`, config, errors, semantics, types |
+| `store` | Core store: `MfsStore`, config, errors, semantics, types |
 | `schema` | `Schema`, `SchemaField`, `SchemaFieldType` definitions |
 | `schema_value` | `SchemaValue` document type and codec |
 | `value` | `MfsValue` Redis-like value model for object-store API |
@@ -63,16 +63,16 @@ v1 intentionally does not provide: SQL compatibility, network server, distribute
 ## Quick start
 
 ```rust
-use mfs_db::{
-    NoSqlEngine, EngineConfig, RawKey, RawValue,
+use mfs_store::{
+    MfsStore, MfsStoreConfig, RawKey, RawValue,
     WriteOptions, ReadOptions, DurabilityMode,
 };
 
-let config = EngineConfig::default()
+let config = MfsStoreConfig::default()
     .with_durability(DurabilityMode::WalSync)
     .with_wal_path("data.wal");
 
-let engine = NoSqlEngine::open_memory(config)?;
+let engine = MfsStore::open_memory(config)?;
 engine.create_raw_collection("users")?;
 
 let key = RawKey::from(&b"user:1"[..]);

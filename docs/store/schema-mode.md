@@ -141,15 +141,15 @@ References are declared in the schema and maintained by the engine. The target f
 
 ## API reference
 
-### `NoSqlEngine::create_schema_collection`
+### `MfsStore::create_schema_collection`
 
 ```rust
-pub fn create_schema_collection(&self, schema: &Schema) -> EngineResult<CollectionId>
+pub fn create_schema_collection(&self, schema: &Schema) -> StoreResult<CollectionId>
 ```
 
 Create a collection with schema validation and indexes. Validates the schema, creates the underlying raw collection, and installs secondary indexes.
 
-### `NoSqlEngine::put_schema`
+### `MfsStore::put_schema`
 
 ```rust
 pub fn put_schema(
@@ -157,14 +157,14 @@ pub fn put_schema(
     schema: &Schema,
     document: SchemaValue,
     options: WriteOptions,
-) -> EngineResult<WriteResult>
+) -> StoreResult<WriteResult>
 ```
 
 Insert or replace a document. Validates the document against the schema, encodes it, and writes it to the raw layer. Updates secondary indexes and references atomically.
 
 The document root must be an object. The primary key is derived from the primary field's value.
 
-### `NoSqlEngine::get_schema`
+### `MfsStore::get_schema`
 
 ```rust
 pub fn get_schema(
@@ -172,12 +172,12 @@ pub fn get_schema(
     schema: &Schema,
     primary_key: &SchemaValue,
     options: ReadOptions,
-) -> EngineResult<Option<SchemaReadResult>>
+) -> StoreResult<Option<SchemaReadResult>>
 ```
 
 Read a document by primary key. Returns the decoded `SchemaValue` and version.
 
-### `NoSqlEngine::delete_schema`
+### `MfsStore::delete_schema`
 
 ```rust
 pub fn delete_schema(
@@ -185,12 +185,12 @@ pub fn delete_schema(
     schema: &Schema,
     primary_key: &SchemaValue,
     options: WriteOptions,
-) -> EngineResult<WriteResult>
+) -> StoreResult<WriteResult>
 ```
 
 Delete a document by primary key. Removes secondary index entries and reference edges atomically.
 
-### `NoSqlEngine::lookup_schema`
+### `MfsStore::lookup_schema`
 
 ```rust
 pub fn lookup_schema(
@@ -199,7 +199,7 @@ pub fn lookup_schema(
     field: &str,
     value: &SchemaValue,
     options: ReadOptions,
-) -> EngineResult<Vec<SchemaLookupResult>>
+) -> StoreResult<Vec<SchemaLookupResult>>
 ```
 
 Exact-match lookup on an indexed field. Returns all documents where the field equals the given value. The field must be marked `indexed` in the schema.
@@ -223,31 +223,31 @@ pub struct SchemaLookupResult {
 }
 ```
 
-### `NoSqlEngine::query_schema`
+### `MfsStore::query_schema`
 
 ```rust
 pub fn query_schema(
     &self,
     schema: &Schema,
     options: QueryOptions,
-) -> EngineResult<QueryResult>
+) -> StoreResult<QueryResult>
 ```
 
 Filter, sort, and paginate documents in a collection. The filter uses a single `FilterClause` with operators `Eq`, `Neq`, `Gt`, `Gte`, `Lt`, `Lte`. Sort by any indexed field with `SortDirection::Asc` or `SortDirection::Desc`. Ties broken by primary key bytes. Pagination via `offset` and `limit`.
 
-### `NoSqlEngine::count_schema`
+### `MfsStore::count_schema`
 
 ```rust
 pub fn count_schema(
     &self,
     schema: &Schema,
     filter: Option<FilterClause>,
-) -> EngineResult<u64>
+) -> StoreResult<u64>
 ```
 
 Count documents in a collection. Pass `None` for total count (uses atomic counter). Pass `Some(filter)` to count matching documents.
 
-### `NoSqlEngine::multi_get_schema`
+### `MfsStore::multi_get_schema`
 
 ```rust
 pub fn multi_get_schema(
@@ -255,12 +255,12 @@ pub fn multi_get_schema(
     schema: &Schema,
     keys: &[SchemaValue],
     options: ReadOptions,
-) -> EngineResult<Vec<SchemaReadResult>>
+) -> StoreResult<Vec<SchemaReadResult>>
 ```
 
 Batch read by primary keys. Duplicate keys are deduplicated. Missing keys are silently skipped. No snapshot isolation across keys.
 
-### `NoSqlEngine::update_schema`
+### `MfsStore::update_schema`
 
 ```rust
 pub fn update_schema(
@@ -269,7 +269,7 @@ pub fn update_schema(
     primary_key: &SchemaValue,
     operations: FieldUpdateOp,
     options: WriteOptions,
-) -> EngineResult<WriteResult>
+) -> StoreResult<WriteResult>
 ```
 
 Partial update with optimistic CAS retry (max 3 attempts). Supports `Set` (assign field value), `Unset` (remove field), and `Increment` (add delta to numeric field). Primary key field cannot be modified. Document is re-validated against schema after all mutations.
@@ -336,8 +336,8 @@ pub enum FieldUpdate {
 ## Code example
 
 ```rust
-use mfs_db::{
-    NoSqlEngine, EngineConfig, Schema, SchemaField, SchemaFieldType,
+use mfs_store::{
+    MfsStore, MfsStoreConfig, Schema, SchemaField, SchemaFieldType,
     SchemaValue, WriteOptions, ReadOptions,
 };
 
@@ -357,7 +357,7 @@ age.indexed = true;
 let schema = Schema::new("users", vec![id, email, age]);
 
 // Create engine and collection
-let engine = NoSqlEngine::open_memory(EngineConfig::default())?;
+let engine = MfsStore::open_memory(MfsStoreConfig::default())?;
 engine.create_schema_collection(&schema)?;
 
 // Put document

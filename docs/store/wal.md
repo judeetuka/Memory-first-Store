@@ -1,6 +1,6 @@
 # WAL (Write-Ahead Log)
 
-Append-only write-ahead log for crash recovery of the NoSQL engine.
+Append-only write-ahead log for crash recovery of the hot store.
 
 The raw WAL stores engine-level put and delete records with per-key versions. It uses length-prefixed records, hardware-accelerated CRC32C integrity, and monotonically increasing LSNs. Replay stops cleanly at the first invalid record (truncation, torn write, checksum mismatch).
 
@@ -58,21 +58,21 @@ pub struct RawWalSegmentWriter {
 }
 
 impl RawWalSegmentWriter {
-    pub fn open(path: impl AsRef<Path>) -> EngineResult<Self>;
+    pub fn open(path: impl AsRef<Path>) -> StoreResult<Self>;
     pub fn path(&self) -> &Path;
     pub fn append_put(
         &mut self,
         collection: &str,
         key: &RawKey,
         value: &RawValue,
-    ) -> EngineResult<Lsn>;
+    ) -> StoreResult<Lsn>;
     pub fn append_delete(
         &mut self,
         collection: &str,
         key: &RawKey,
-    ) -> EngineResult<Lsn>;
-    pub fn flush(&mut self) -> EngineResult<()>;
-    pub fn sync_now(&mut self) -> EngineResult<()>;
+    ) -> StoreResult<Lsn>;
+    pub fn flush(&mut self) -> StoreResult<()>;
+    pub fn sync_now(&mut self) -> StoreResult<()>;
 }
 ```
 
@@ -86,16 +86,16 @@ The writer tracks per-key versions internally. `append_put` and `append_delete` 
 pub struct RawWalSegmentReader;
 
 impl RawWalSegmentReader {
-    pub fn read_records(path: impl AsRef<Path>) -> EngineResult<Vec<RawWalRecord>>;
+    pub fn read_records(path: impl AsRef<Path>) -> StoreResult<Vec<RawWalRecord>>;
     pub fn replay_into(
         path: impl AsRef<Path>,
-        engine: &NoSqlEngine,
-    ) -> EngineResult<RawWalReplayStats>;
+        store: &MfsStore,
+    ) -> StoreResult<RawWalReplayStats>;
     pub fn replay_after(
         path: impl AsRef<Path>,
-        engine: &NoSqlEngine,
+        store: &MfsStore,
         after_lsn: Lsn,
-    ) -> EngineResult<RawWalReplayStats>;
+    ) -> StoreResult<RawWalReplayStats>;
 }
 ```
 
@@ -104,14 +104,14 @@ impl RawWalSegmentReader {
 ```rust
 pub fn replay_raw_wal(
     path: impl AsRef<Path>,
-    engine: &NoSqlEngine,
-) -> EngineResult<RawWalReplayStats>;
+    store: &MfsStore,
+) -> StoreResult<RawWalReplayStats>;
 
 pub fn replay_raw_wal_after(
     path: impl AsRef<Path>,
-    engine: &NoSqlEngine,
+    store: &MfsStore,
     after_lsn: Lsn,
-) -> EngineResult<RawWalReplayStats>;
+) -> StoreResult<RawWalReplayStats>;
 ```
 
 ## WAL format
@@ -158,7 +158,7 @@ Torn writes at the tail of the file (partial records from a crash during append)
 ### `RawWalSegmentWriter::open`
 
 ```rust
-pub fn open(path: impl AsRef<Path>) -> EngineResult<Self>
+pub fn open(path: impl AsRef<Path>) -> StoreResult<Self>
 ```
 
 Open or create a WAL segment file. If the file exists, scans it to find the last valid record, truncates any torn tail, and resumes LSN numbering from the last record's LSN + 1.
@@ -171,7 +171,7 @@ pub fn append_put(
     collection: &str,
     key: &RawKey,
     value: &RawValue,
-) -> EngineResult<Lsn>
+) -> StoreResult<Lsn>
 ```
 
 Append a put record. Tracks the per-key version internally and assigns the next version.
@@ -183,7 +183,7 @@ pub fn append_delete(
     &mut self,
     collection: &str,
     key: &RawKey,
-) -> EngineResult<Lsn>
+) -> StoreResult<Lsn>
 ```
 
 Append a delete record.
@@ -191,7 +191,7 @@ Append a delete record.
 ### `RawWalSegmentWriter::sync_now`
 
 ```rust
-pub fn sync_now(&mut self) -> EngineResult<()>
+pub fn sync_now(&mut self) -> StoreResult<()>
 ```
 
 Flush the buffer and `sync_data` the file. This is the durability barrier.
@@ -201,8 +201,8 @@ Flush the buffer and `sync_data` the file. This is the durability barrier.
 ```rust
 pub fn replay_into(
     path: impl AsRef<Path>,
-    engine: &NoSqlEngine,
-) -> EngineResult<RawWalReplayStats>
+    store: &MfsStore,
+) -> StoreResult<RawWalReplayStats>
 ```
 
 Replay all valid records into the engine. Creates collections as needed. Applies records in LSN order.
@@ -212,9 +212,9 @@ Replay all valid records into the engine. Creates collections as needed. Applies
 ```rust
 pub fn replay_after(
     path: impl AsRef<Path>,
-    engine: &NoSqlEngine,
+    store: &MfsStore,
     after_lsn: Lsn,
-) -> EngineResult<RawWalReplayStats>
+) -> StoreResult<RawWalReplayStats>
 ```
 
 Replay only records with LSN greater than `after_lsn`. Used after loading a checkpoint to apply only the WAL suffix.
@@ -222,8 +222,8 @@ Replay only records with LSN greater than `after_lsn`. Used after loading a chec
 ## Code example
 
 ```rust
-use mfs_db::{
-    NoSqlEngine, EngineConfig, RawKey, RawValue,
+use mfs_store::{
+    MfsStore, MfsStoreConfig, RawKey, RawValue,
     RawWalSegmentWriter, RawWalSegmentReader,
     replay_raw_wal,
 };
@@ -246,7 +246,7 @@ assert_eq!(records[0].lsn, lsn1);
 assert_eq!(records[1].lsn, lsn2);
 
 // Replay into engine
-let engine = NoSqlEngine::open_memory(EngineConfig::default())?;
+let engine = MfsStore::open_memory(MfsStoreConfig::default())?;
 let stats = replay_raw_wal("data.wal", &engine)?;
 assert_eq!(stats.records, 2);
 assert_eq!(stats.last_lsn, lsn2);
@@ -257,13 +257,13 @@ assert_eq!(stats.last_lsn, lsn2);
 The engine uses the WAL internally when configured with WAL durability modes:
 
 ```rust
-use mfs_db::{EngineConfig, DurabilityMode};
+use mfs_store::{MfsStoreConfig, DurabilityMode};
 
-let config = EngineConfig::default()
+let config = MfsStoreConfig::default()
     .with_durability(DurabilityMode::WalSync)
     .with_wal_path("data.wal");
 
-let engine = NoSqlEngine::open_memory(config)?;
+let engine = MfsStore::open_memory(config)?;
 ```
 
 With `WalSync`, every `put_raw` or `delete_raw` call appends to the WAL and calls `sync_now` before returning. With `WalAsync`, the record is buffered but not synced. With `WalGroupCommit`, the engine batches syncs across multiple writes.

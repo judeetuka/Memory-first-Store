@@ -48,7 +48,7 @@ pub struct RawCheckpointSource {
 pub struct RawCheckpointLoad {
     pub path: PathBuf,
     pub metadata: RawCheckpointMetadata,
-    pub engine: NoSqlEngine,
+    pub store: MfsStore,
 }
 ```
 
@@ -56,7 +56,7 @@ pub struct RawCheckpointLoad {
 
 ```rust
 pub struct RawRecovery {
-    pub engine: NoSqlEngine,
+    pub store: MfsStore,
     pub checkpoint: Option<RawCheckpointSource>,
     pub wal: RawWalReplayStats,
 }
@@ -69,9 +69,9 @@ pub struct RawRecovery {
 ```rust
 pub fn write_raw_checkpoint_to_dir(
     dir: impl AsRef<Path>,
-    engine: &NoSqlEngine,
+    store: &MfsStore,
     checkpoint_lsn: Lsn,
-) -> EngineResult<RawCheckpointMetadata>
+) -> StoreResult<RawCheckpointMetadata>
 ```
 
 Write a checkpoint of the engine's current state to the given directory. The checkpoint file is named `raw-{lsn:020}.mfschkp`. Creates the directory if it doesn't exist.
@@ -83,9 +83,9 @@ The write is atomic: data is written to a temporary file, synced, then renamed i
 ```rust
 pub fn write_raw_checkpoint(
     path: impl AsRef<Path>,
-    engine: &NoSqlEngine,
+    store: &MfsStore,
     checkpoint_lsn: Lsn,
-) -> EngineResult<RawCheckpointMetadata>
+) -> StoreResult<RawCheckpointMetadata>
 ```
 
 Write a checkpoint to a specific file path. Same atomic write semantics as `write_raw_checkpoint_to_dir`.
@@ -95,8 +95,8 @@ Write a checkpoint to a specific file path. Same atomic write semantics as `writ
 ```rust
 pub fn load_latest_raw_checkpoint(
     dir: impl AsRef<Path>,
-    config: EngineConfig,
-) -> EngineResult<Option<RawCheckpointLoad>>
+    config: MfsStoreConfig,
+) -> StoreResult<Option<RawCheckpointLoad>>
 ```
 
 Scan a directory for checkpoint files, find the one with the highest LSN, decode it, and reconstruct an engine from its snapshot. Skips corrupted checkpoint files (returns `None` if no valid checkpoint exists).
@@ -106,7 +106,7 @@ Scan a directory for checkpoint files, find the one with the highest LSN, decode
 ```rust
 pub fn read_raw_checkpoint_metadata(
     path: impl AsRef<Path>,
-) -> EngineResult<RawCheckpointMetadata>
+) -> StoreResult<RawCheckpointMetadata>
 ```
 
 Read only the metadata from a checkpoint file without reconstructing the engine.
@@ -117,8 +117,8 @@ Read only the metadata from a checkpoint file without reconstructing the engine.
 pub fn recover_raw_checkpoint_then_wal(
     checkpoint_dir: impl AsRef<Path>,
     wal_path: impl AsRef<Path>,
-    config: EngineConfig,
-) -> EngineResult<RawRecovery>
+    config: MfsStoreConfig,
+) -> StoreResult<RawRecovery>
 ```
 
 Full recovery: load the latest valid checkpoint (if any), then replay WAL records after the checkpoint's LSN. If no valid checkpoint exists, starts from an empty engine and replays the entire WAL.
@@ -198,19 +198,19 @@ Corrupted checkpoint files are skipped by `load_latest_raw_checkpoint` (the load
 ## Code example
 
 ```rust
-use mfs_db::{
-    NoSqlEngine, EngineConfig, RawKey, RawValue,
+use mfs_store::{
+    MfsStore, MfsStoreConfig, RawKey, RawValue,
     WriteOptions, Lsn,
     write_raw_checkpoint_to_dir,
     recover_raw_checkpoint_then_wal,
 };
 
 // Create engine and write some data
-let config = EngineConfig::default()
+let config = MfsStoreConfig::default()
     .with_wal_path("data.wal")
     .with_checkpoint_dir("checkpoints");
 
-let engine = NoSqlEngine::open_memory(config.clone())?;
+let engine = MfsStore::open_memory(config.clone())?;
 engine.create_raw_collection("users")?;
 
 let key = RawKey::from(&b"user:1"[..]);
