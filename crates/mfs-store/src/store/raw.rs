@@ -1,9 +1,9 @@
-use crate::engine::index::{
+use crate::store::index::{
     SchemaCollectionIndexes, SchemaIndexWritePlan, decode_schema_raw_value,
 };
-use crate::engine::{
-    CollectionId, CollectionName, DocumentVersion, DurabilityMode, EngineConfig, EngineError,
-    EngineResult, RawKey, RawValue, RawWalSegmentWriter, ReadOptions, ReadResult,
+use crate::store::{
+    CollectionId, CollectionName, DocumentVersion, DurabilityMode, MfsStoreConfig, StoreError,
+    StoreResult, RawKey, RawValue, RawWalSegmentWriter, ReadOptions, ReadResult,
     WriteAcknowledgement, WriteOptions, WriteResult,
 };
 use crossbeam_utils::CachePadded;
@@ -20,19 +20,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const DEFAULT_RAW_MUTATION_LOCKS: usize = 1024;
 
 #[derive(Clone)]
-pub struct NoSqlEngine {
-    pub(crate) inner: Arc<EngineInner>,
+pub struct MfsStore {
+    pub(crate) inner: Arc<StoreInner>,
 }
 
-pub(crate) struct EngineInner {
-    pub(crate) config: EngineConfig,
-    durability: EngineDurability,
+pub(crate) struct StoreInner {
+    pub(crate) config: MfsStoreConfig,
+    durability: StoreDurability,
     collections: RwLock<HashMap<String, Arc<RawCollection>>>,
     pub(crate) schema_indexes: RwLock<HashMap<String, Arc<SchemaCollectionIndexes>>>,
     next_collection_id: AtomicU64,
 }
 
-struct EngineDurability {
+struct StoreDurability {
     wal_path: Option<PathBuf>,
     wal: Mutex<Option<RawWalSegmentWriter>>,
 }
@@ -50,7 +50,7 @@ struct RawWriteContext<'a> {
     collection: &'a str,
     options: WriteOptions,
     default_durability: DurabilityMode,
-    durability: &'a EngineDurability,
+    durability: &'a StoreDurability,
 }
 
 struct RawWriteHooks<P, A> {
@@ -65,7 +65,7 @@ struct RawRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RawEngineSnapshot {
+pub(crate) struct RawStoreSnapshot {
     pub collections: Vec<RawCollectionSnapshot>,
 }
 
@@ -82,21 +82,21 @@ pub(crate) struct RawSnapshotRecord {
     pub version: DocumentVersion,
 }
 
-impl fmt::Debug for NoSqlEngine {
+impl fmt::Debug for MfsStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NoSqlEngine")
+        f.debug_struct("MfsStore")
             .field("config", &self.inner.config)
             .finish_non_exhaustive()
     }
 }
 
-impl NoSqlEngine {
-    pub fn open_memory(config: EngineConfig) -> EngineResult<Self> {
-        validate_engine_config(&config)?;
+impl MfsStore {
+    pub fn open_memory(config: MfsStoreConfig) -> StoreResult<Self> {
+        validate_store_config(&config)?;
 
         Ok(Self {
-            inner: Arc::new(EngineInner {
-                durability: EngineDurability::new(&config),
+            inner: Arc::new(StoreInner {
+                durability: StoreDurability::new(&config),
                 config,
                 collections: RwLock::new(HashMap::new()),
                 schema_indexes: RwLock::new(HashMap::new()),
@@ -105,21 +105,21 @@ impl NoSqlEngine {
         })
     }
 
-    pub fn config(&self) -> &EngineConfig {
+    pub fn config(&self) -> &MfsStoreConfig {
         &self.inner.config
     }
 
     pub fn create_raw_collection(
         &self,
         name: impl Into<CollectionName>,
-    ) -> EngineResult<CollectionId> {
+    ) -> StoreResult<CollectionId> {
         let name = name.into().into_string();
         let mut collections = self.inner.collections.write();
         if collections.contains_key(&name) {
-            return Err(EngineError::CollectionAlreadyExists { collection: name });
+            return Err(StoreError::CollectionAlreadyExists { collection: name });
         }
         if collections.len() >= self.inner.config.max_collections {
-            return Err(EngineError::CollectionLimitExceeded {
+            return Err(StoreError::CollectionLimitExceeded {
                 max_collections: self.inner.config.max_collections,
             });
         }
@@ -144,7 +144,7 @@ impl NoSqlEngine {
         key: RawKey,
         value: RawValue,
         options: WriteOptions,
-    ) -> EngineResult<WriteResult> {
+    ) -> StoreResult<WriteResult> {
         self.put_raw_with_hooks(collection, key, value, options, |_, _| Ok(()), |_, _| {})
     }
 
@@ -156,9 +156,9 @@ impl NoSqlEngine {
         options: WriteOptions,
         preflight: P,
         after_success: A,
-    ) -> EngineResult<WriteResult>
+    ) -> StoreResult<WriteResult>
     where
-        P: FnOnce(Option<&RawValue>, DocumentVersion) -> EngineResult<()>,
+        P: FnOnce(Option<&RawValue>, DocumentVersion) -> StoreResult<()>,
         A: FnOnce(Option<&RawValue>, DocumentVersion),
     {
         self.raw_collection(collection)?.put_with_hooks(
@@ -183,7 +183,7 @@ impl NoSqlEngine {
         key: RawKey,
         value: RawValue,
         expected_version: DocumentVersion,
-    ) -> EngineResult<WriteResult> {
+    ) -> StoreResult<WriteResult> {
         self.put_raw(
             collection,
             key,
@@ -200,7 +200,7 @@ impl NoSqlEngine {
         collection: &str,
         key: &RawKey,
         options: ReadOptions,
-    ) -> EngineResult<Option<ReadResult>> {
+    ) -> StoreResult<Option<ReadResult>> {
         let _ = options;
         Ok(self.raw_collection(collection)?.get(key))
     }
@@ -210,7 +210,7 @@ impl NoSqlEngine {
         collection: &str,
         key: RawKey,
         options: WriteOptions,
-    ) -> EngineResult<WriteResult> {
+    ) -> StoreResult<WriteResult> {
         self.delete_raw_with_hooks(collection, key, options, |_, _| Ok(()), |_, _| {})
     }
 
@@ -221,9 +221,9 @@ impl NoSqlEngine {
         options: WriteOptions,
         preflight: P,
         after_success: A,
-    ) -> EngineResult<WriteResult>
+    ) -> StoreResult<WriteResult>
     where
-        P: FnOnce(Option<&RawValue>, DocumentVersion) -> EngineResult<()>,
+        P: FnOnce(Option<&RawValue>, DocumentVersion) -> StoreResult<()>,
         A: FnOnce(Option<&RawValue>, DocumentVersion),
     {
         self.raw_collection(collection)?.delete_with_hooks(
@@ -247,7 +247,7 @@ impl NoSqlEngine {
         key: RawKey,
         value: Option<RawValue>,
         version: DocumentVersion,
-    ) -> EngineResult<()> {
+    ) -> StoreResult<()> {
         let raw_collection = self.raw_collection(collection)?;
         let schema_state = self.schema_indexes_for_collection(collection);
 
@@ -279,7 +279,7 @@ impl NoSqlEngine {
         }
     }
 
-    pub(crate) fn raw_snapshot(&self) -> RawEngineSnapshot {
+    pub(crate) fn raw_snapshot(&self) -> RawStoreSnapshot {
         let collections = self.inner.collections.read();
         let mut snapshot = Vec::with_capacity(collections.len());
         for (name, collection) in collections.iter() {
@@ -289,18 +289,18 @@ impl NoSqlEngine {
             });
         }
         snapshot.sort_by(|left, right| left.name.cmp(&right.name));
-        RawEngineSnapshot {
+        RawStoreSnapshot {
             collections: snapshot,
         }
     }
 
     pub(crate) fn from_raw_snapshot(
-        config: EngineConfig,
-        snapshot: RawEngineSnapshot,
-    ) -> EngineResult<Self> {
-        validate_engine_config(&config)?;
+        config: MfsStoreConfig,
+        snapshot: RawStoreSnapshot,
+    ) -> StoreResult<Self> {
+        validate_store_config(&config)?;
         if snapshot.collections.len() > config.max_collections {
-            return Err(EngineError::CollectionLimitExceeded {
+            return Err(StoreError::CollectionLimitExceeded {
                 max_collections: config.max_collections,
             });
         }
@@ -308,7 +308,7 @@ impl NoSqlEngine {
         let mut collections = HashMap::with_capacity(snapshot.collections.len());
         for collection in snapshot.collections {
             if collections.contains_key(&collection.name) {
-                return Err(EngineError::CollectionAlreadyExists {
+                return Err(StoreError::CollectionAlreadyExists {
                     collection: collection.name,
                 });
             }
@@ -332,7 +332,7 @@ impl NoSqlEngine {
                 ) {
                     InsertOutcome::Inserted | InsertOutcome::Replaced => {}
                     InsertOutcome::Full => {
-                        return Err(EngineError::CollectionCapacityFull {
+                        return Err(StoreError::CollectionCapacityFull {
                             collection: collection.name,
                         });
                     }
@@ -346,8 +346,8 @@ impl NoSqlEngine {
 
         let next_collection_id = collections.len() as u64 + 1;
         Ok(Self {
-            inner: Arc::new(EngineInner {
-                durability: EngineDurability::new(&config),
+            inner: Arc::new(StoreInner {
+                durability: StoreDurability::new(&config),
                 config,
                 collections: RwLock::new(collections),
                 schema_indexes: RwLock::new(HashMap::new()),
@@ -356,7 +356,7 @@ impl NoSqlEngine {
         })
     }
 
-    pub fn collection_count(&self, collection: &str) -> EngineResult<u64> {
+    pub fn collection_count(&self, collection: &str) -> StoreResult<u64> {
         Ok(self
             .raw_collection(collection)?
             .record_count
@@ -368,20 +368,20 @@ impl NoSqlEngine {
     /// The callback receives the raw key, the raw value, and the document
     /// version. Tombstone entries (deleted records) are silently skipped.
 
-    fn raw_collection(&self, collection: &str) -> EngineResult<Arc<RawCollection>> {
+    fn raw_collection(&self, collection: &str) -> StoreResult<Arc<RawCollection>> {
         self.inner
             .collections
             .read()
             .get(collection)
             .cloned()
-            .ok_or_else(|| EngineError::CollectionNotFound {
+            .ok_or_else(|| StoreError::CollectionNotFound {
                 collection: collection.to_string(),
             })
     }
 }
 
-impl EngineDurability {
-    fn new(config: &EngineConfig) -> Self {
+impl StoreDurability {
+    fn new(config: &MfsStoreConfig) -> Self {
         Self {
             wal_path: config.wal_path.clone(),
             wal: Mutex::new(None),
@@ -395,7 +395,7 @@ impl EngineDurability {
         key: &RawKey,
         value: Option<&RawValue>,
         version: DocumentVersion,
-    ) -> EngineResult<WriteAcknowledgement> {
+    ) -> StoreResult<WriteAcknowledgement> {
         match mode {
             DurabilityMode::MemoryOnly => Ok(WriteAcknowledgement::MemoryOnly),
             DurabilityMode::SnapshotOnly => Ok(WriteAcknowledgement::SnapshotOnly),
@@ -421,10 +421,10 @@ impl EngineDurability {
         value: Option<&RawValue>,
         version: DocumentVersion,
         sync: bool,
-    ) -> EngineResult<crate::engine::Lsn> {
+    ) -> StoreResult<crate::store::Lsn> {
         let mut wal = self.wal.lock();
         if wal.is_none() {
-            let path = self.wal_path.as_ref().ok_or(EngineError::InvalidConfig {
+            let path = self.wal_path.as_ref().ok_or(StoreError::InvalidConfig {
                 field: "wal_path",
                 reason: "required for WAL durability modes",
             })?;
@@ -466,9 +466,9 @@ impl RawCollection {
         value: RawValue,
         context: RawWriteContext<'_>,
         hooks: RawWriteHooks<P, A>,
-    ) -> EngineResult<WriteResult>
+    ) -> StoreResult<WriteResult>
     where
-        P: FnOnce(Option<&RawValue>, DocumentVersion) -> EngineResult<()>,
+        P: FnOnce(Option<&RawValue>, DocumentVersion) -> StoreResult<()>,
         A: FnOnce(Option<&RawValue>, DocumentVersion),
     {
         self.write_with_hooks(key, Some(value), context, hooks)
@@ -479,9 +479,9 @@ impl RawCollection {
         key: RawKey,
         context: RawWriteContext<'_>,
         hooks: RawWriteHooks<P, A>,
-    ) -> EngineResult<WriteResult>
+    ) -> StoreResult<WriteResult>
     where
-        P: FnOnce(Option<&RawValue>, DocumentVersion) -> EngineResult<()>,
+        P: FnOnce(Option<&RawValue>, DocumentVersion) -> StoreResult<()>,
         A: FnOnce(Option<&RawValue>, DocumentVersion),
     {
         self.write_with_hooks(key, None, context, hooks)
@@ -516,9 +516,9 @@ impl RawCollection {
         value: Option<RawValue>,
         context: RawWriteContext<'_>,
         hooks: RawWriteHooks<P, A>,
-    ) -> EngineResult<WriteResult>
+    ) -> StoreResult<WriteResult>
     where
-        P: FnOnce(Option<&RawValue>, DocumentVersion) -> EngineResult<()>,
+        P: FnOnce(Option<&RawValue>, DocumentVersion) -> StoreResult<()>,
         A: FnOnce(Option<&RawValue>, DocumentVersion),
     {
         let _write_guard = self.write_lock.lock();
@@ -532,7 +532,7 @@ impl RawCollection {
         if let Some(expected) = context.options.expected_version
             && expected != actual
         {
-            return Err(EngineError::Conflict {
+            return Err(StoreError::Conflict {
                 collection: context.collection.to_string(),
                 key,
                 expected,
@@ -546,7 +546,7 @@ impl RawCollection {
 
         let version = next_version(actual);
         if !pinned.can_insert_or_replace(&key) {
-            return Err(EngineError::CollectionCapacityFull {
+            return Err(StoreError::CollectionCapacityFull {
                 collection: context.collection.to_string(),
             });
         }
@@ -582,7 +582,7 @@ impl RawCollection {
                     (hooks.after_success)(old_value, version);
                 })
             }
-            InsertOutcome::Full => Err(EngineError::CollectionCapacityFull {
+            InsertOutcome::Full => Err(StoreError::CollectionCapacityFull {
                 collection: context.collection.to_string(),
             }),
         }
@@ -607,7 +607,7 @@ impl RawCollection {
         key: RawKey,
         value: Option<RawValue>,
         version: DocumentVersion,
-    ) -> EngineResult<()> {
+    ) -> StoreResult<()> {
         let is_put = value.is_some();
         let (outcome, old_record) =
             pinned.insert_returning_old(key, RawRecord { value, version });
@@ -628,7 +628,7 @@ impl RawCollection {
                 }
                 Ok(())
             }
-            InsertOutcome::Full => Err(EngineError::CollectionCapacityFull {
+            InsertOutcome::Full => Err(StoreError::CollectionCapacityFull {
                 collection: collection.to_string(),
             }),
         }
@@ -636,12 +636,12 @@ impl RawCollection {
 }
 
 fn prepare_schema_replay_plan(
-    engine: &NoSqlEngine,
+    engine: &MfsStore,
     state: &SchemaCollectionIndexes,
     key: &RawKey,
     old_raw: Option<&RawValue>,
     new_raw: Option<&RawValue>,
-) -> EngineResult<SchemaIndexWritePlan> {
+) -> StoreResult<SchemaIndexWritePlan> {
     let old_document = old_raw
         .map(|raw| decode_schema_raw_value(state.schema(), raw))
         .transpose()?;
@@ -655,15 +655,15 @@ fn prepare_schema_replay_plan(
     }
 }
 
-fn validate_engine_config(config: &EngineConfig) -> EngineResult<()> {
+fn validate_store_config(config: &MfsStoreConfig) -> StoreResult<()> {
     if config.max_collections == 0 {
-        return Err(EngineError::InvalidConfig {
+        return Err(StoreError::InvalidConfig {
             field: "max_collections",
             reason: "must be greater than zero",
         });
     }
     if config.raw_initial_capacity == 0 {
-        return Err(EngineError::InvalidConfig {
+        return Err(StoreError::InvalidConfig {
             field: "raw_initial_capacity",
             reason: "must be greater than zero",
         });
@@ -673,7 +673,7 @@ fn validate_engine_config(config: &EngineConfig) -> EngineResult<()> {
         DurabilityMode::WalAsync | DurabilityMode::WalGroupCommit | DurabilityMode::WalSync
     ) && config.wal_path.is_none()
     {
-        return Err(EngineError::InvalidConfig {
+        return Err(StoreError::InvalidConfig {
             field: "wal_path",
             reason: "required for WAL durability modes",
         });

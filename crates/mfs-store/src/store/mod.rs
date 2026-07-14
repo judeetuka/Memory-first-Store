@@ -1,4 +1,4 @@
-//! NoSQL engine contract and future engine modules.
+//! Hot storage store contract and future store modules.
 
 pub mod checkpoint;
 pub mod config;
@@ -17,15 +17,15 @@ pub use checkpoint::{
     raw_checkpoint_path, read_raw_checkpoint_metadata, recover_raw_checkpoint_then_wal,
     write_raw_checkpoint, write_raw_checkpoint_to_dir,
 };
-pub use config::{DEFAULT_MAX_COLLECTIONS, DEFAULT_RAW_INITIAL_CAPACITY, EngineConfig};
-pub use error::{CheckpointCorruptionKind, EngineError, EngineResult, WalCorruptionKind};
+pub use config::{DEFAULT_MAX_COLLECTIONS, DEFAULT_RAW_INITIAL_CAPACITY, MfsStoreConfig};
+pub use error::{CheckpointCorruptionKind, StoreError, StoreResult, WalCorruptionKind};
 pub use index::SchemaLookupResult;
-pub use raw::NoSqlEngine;
+pub use raw::MfsStore;
 pub use reference::{SchemaForwardReferenceInclude, SchemaReverseReferenceInclude};
 pub use schema_mode::{SchemaReadResult, schema_document_raw_key, schema_primary_key_raw_key};
 pub use semantics::{
-    DurabilityMode, EngineMode, EngineNonGoal, EngineScope, EngineSemantics, IndexConsistency,
-    ReadConsistency, RecoveryPrecedence, ReferenceLimit, V1_ENGINE_SEMANTICS, WriteAtomicity,
+    DurabilityMode, StoreMode, StoreNonGoal, StoreScope, StoreSemantics, IndexConsistency,
+    ReadConsistency, RecoveryPrecedence, ReferenceLimit, V1_STORE_SEMANTICS, WriteAtomicity,
     WriteConflictPolicy,
 };
 pub use types::{

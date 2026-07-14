@@ -1,5 +1,5 @@
-use crate::engine::{
-    EngineError, EngineResult, NoSqlEngine, RawKey, ReadOptions, SchemaReadResult,
+use crate::store::{
+    StoreError, StoreResult, MfsStore, RawKey, ReadOptions, SchemaReadResult,
     schema_primary_key_raw_key,
 };
 use crate::schema::{Reference, Schema};
@@ -53,14 +53,14 @@ struct PreparedReferenceEntry {
     target_key: RawKey,
 }
 
-impl NoSqlEngine {
+impl MfsStore {
     pub fn include_schema_reference(
         &self,
         schema: &Schema,
         primary_key: &SchemaValue,
         reference_field: &str,
         options: ReadOptions,
-    ) -> EngineResult<Option<SchemaForwardReferenceInclude>> {
+    ) -> StoreResult<Option<SchemaForwardReferenceInclude>> {
         let state = self.ensure_schema_indexes(schema)?;
         let _read_unit = state.lock_read_unit();
         let source_key = schema_primary_key_raw_key(schema, primary_key)?;
@@ -98,10 +98,10 @@ impl NoSqlEngine {
         source_schema: &Schema,
         reference_field: &str,
         options: ReadOptions,
-    ) -> EngineResult<Vec<SchemaReverseReferenceInclude>> {
+    ) -> StoreResult<Vec<SchemaReverseReferenceInclude>> {
         let target_state = self.ensure_schema_indexes(target_schema)?;
         if target_state.schema() != target_schema {
-            return Err(EngineError::SchemaDeclarationMismatch {
+            return Err(StoreError::SchemaDeclarationMismatch {
                 collection: target_schema.name.clone(),
             });
         }
@@ -170,11 +170,11 @@ impl SchemaCollectionReferences {
 
     pub(crate) fn prepare_put(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         schema: &Schema,
         old: Option<&SchemaValue>,
         new: &SchemaValue,
-    ) -> EngineResult<SchemaReferenceWritePlan> {
+    ) -> StoreResult<SchemaReferenceWritePlan> {
         Ok(SchemaReferenceWritePlan {
             old_entries: match old {
                 Some(document) => self.document_entries(engine, schema, document)?,
@@ -186,10 +186,10 @@ impl SchemaCollectionReferences {
 
     pub(crate) fn prepare_delete(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         schema: &Schema,
         old: Option<&SchemaValue>,
-    ) -> EngineResult<SchemaReferenceWritePlan> {
+    ) -> StoreResult<SchemaReferenceWritePlan> {
         Ok(SchemaReferenceWritePlan {
             old_entries: match old {
                 Some(document) => self.document_entries(engine, schema, document)?,
@@ -232,12 +232,12 @@ impl SchemaCollectionReferences {
 
     pub(crate) fn rebuild_document(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         schema: &Schema,
         source_key: &RawKey,
         document: &SchemaValue,
         maps: &mut SchemaReferenceMaps,
-    ) -> EngineResult<()> {
+    ) -> StoreResult<()> {
         for entry in self.document_entries(engine, schema, document)? {
             maps.forward[entry.field_idx].insert(source_key.clone(), entry.target_key.clone());
             let sources = maps.reverse[entry.field_idx]
@@ -261,10 +261,10 @@ impl SchemaCollectionReferences {
 
     fn document_entries(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         schema: &Schema,
         document: &SchemaValue,
-    ) -> EngineResult<Vec<PreparedReferenceEntry>> {
+    ) -> StoreResult<Vec<PreparedReferenceEntry>> {
         let mut entries = Vec::new();
         for (field_idx, field) in self.fields.iter().enumerate() {
             let Some(value) = document.field(&field.name) else {
@@ -284,25 +284,25 @@ impl SchemaCollectionReferences {
 
     fn target_key_from_value(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         schema: &Schema,
         field: &ReferenceField,
         value: &SchemaValue,
-    ) -> EngineResult<RawKey> {
+    ) -> StoreResult<RawKey> {
         let target = engine
             .schema_indexes_for_collection(&field.reference.collection)
-            .ok_or_else(|| EngineError::ReferenceTargetCollectionNotFound {
+            .ok_or_else(|| StoreError::ReferenceTargetCollectionNotFound {
                 collection: schema.name.clone(),
                 field: field.name.clone(),
                 target_collection: field.reference.collection.clone(),
             })?;
         let primary = target.schema().primary_field().ok_or_else(|| {
-            EngineError::SchemaMissingPrimaryField {
+            StoreError::SchemaMissingPrimaryField {
                 collection: target.schema().name.clone(),
             }
         })?;
         if primary.name != field.reference.field {
-            return Err(EngineError::ReferenceTargetNotPrimary {
+            return Err(StoreError::ReferenceTargetNotPrimary {
                 collection: schema.name.clone(),
                 field: field.name.clone(),
                 target_collection: field.reference.collection.clone(),
@@ -314,11 +314,11 @@ impl SchemaCollectionReferences {
 
     pub(crate) fn reference_key_from_document(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         schema: &Schema,
         reference_field: &str,
         document: &SchemaValue,
-    ) -> EngineResult<Option<RawKey>> {
+    ) -> StoreResult<Option<RawKey>> {
         let (_, field) = self.reference_field(schema, reference_field)?;
         let Some(value) = document.field(&field.name) else {
             return Ok(None);
@@ -332,25 +332,25 @@ impl SchemaCollectionReferences {
 
     pub(crate) fn reference_target_schema(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         schema: &Schema,
         reference_field: &str,
-    ) -> EngineResult<Schema> {
+    ) -> StoreResult<Schema> {
         let (_, field) = self.reference_field(schema, reference_field)?;
         let target = engine
             .schema_indexes_for_collection(&field.reference.collection)
-            .ok_or_else(|| EngineError::ReferenceTargetCollectionNotFound {
+            .ok_or_else(|| StoreError::ReferenceTargetCollectionNotFound {
                 collection: schema.name.clone(),
                 field: field.name.clone(),
                 target_collection: field.reference.collection.clone(),
             })?;
         let primary = target.schema().primary_field().ok_or_else(|| {
-            EngineError::SchemaMissingPrimaryField {
+            StoreError::SchemaMissingPrimaryField {
                 collection: target.schema().name.clone(),
             }
         })?;
         if primary.name != field.reference.field {
-            return Err(EngineError::ReferenceTargetNotPrimary {
+            return Err(StoreError::ReferenceTargetNotPrimary {
                 collection: schema.name.clone(),
                 field: field.name.clone(),
                 target_collection: field.reference.collection.clone(),
@@ -365,7 +365,7 @@ impl SchemaCollectionReferences {
         schema: &Schema,
         reference_field: &str,
         target_key: &RawKey,
-    ) -> EngineResult<Vec<RawKey>> {
+    ) -> StoreResult<Vec<RawKey>> {
         let (idx, _) = self.reference_field(schema, reference_field)?;
         Ok(self.reverse[idx]
             .read()
@@ -379,10 +379,10 @@ impl SchemaCollectionReferences {
         schema: &Schema,
         reference_field: &str,
         target_schema: &Schema,
-    ) -> EngineResult<()> {
+    ) -> StoreResult<()> {
         let (_, field) = self.reference_field(schema, reference_field)?;
         if field.reference.collection != target_schema.name {
-            return Err(EngineError::ReferenceTargetMismatch {
+            return Err(StoreError::ReferenceTargetMismatch {
                 collection: schema.name.clone(),
                 field: reference_field.to_string(),
                 expected_collection: target_schema.name.clone(),
@@ -390,12 +390,12 @@ impl SchemaCollectionReferences {
             });
         }
         let primary = target_schema.primary_field().ok_or_else(|| {
-            EngineError::SchemaMissingPrimaryField {
+            StoreError::SchemaMissingPrimaryField {
                 collection: target_schema.name.clone(),
             }
         })?;
         if primary.name != field.reference.field {
-            return Err(EngineError::ReferenceTargetNotPrimary {
+            return Err(StoreError::ReferenceTargetNotPrimary {
                 collection: schema.name.clone(),
                 field: reference_field.to_string(),
                 target_collection: field.reference.collection.clone(),
@@ -409,25 +409,25 @@ impl SchemaCollectionReferences {
         &self,
         schema: &Schema,
         reference_field: &str,
-    ) -> EngineResult<(usize, &ReferenceField)> {
+    ) -> StoreResult<(usize, &ReferenceField)> {
         self.fields
             .iter()
             .enumerate()
             .find(|(_, field)| field.name == reference_field)
-            .ok_or_else(|| EngineError::ReferenceFieldNotFound {
+            .ok_or_else(|| StoreError::ReferenceFieldNotFound {
                 collection: schema.name.clone(),
                 field: reference_field.to_string(),
             })
     }
 }
 
-impl crate::engine::index::SchemaCollectionIndexes {
+impl crate::store::index::SchemaCollectionIndexes {
     pub(crate) fn reference_key_from_document(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         reference_field: &str,
         document: &SchemaValue,
-    ) -> EngineResult<Option<RawKey>> {
+    ) -> StoreResult<Option<RawKey>> {
         self.references.reference_key_from_document(
             engine,
             self.schema(),
@@ -438,9 +438,9 @@ impl crate::engine::index::SchemaCollectionIndexes {
 
     pub(crate) fn reference_target_schema(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         reference_field: &str,
-    ) -> EngineResult<Schema> {
+    ) -> StoreResult<Schema> {
         self.references
             .reference_target_schema(engine, self.schema(), reference_field)
     }
@@ -449,7 +449,7 @@ impl crate::engine::index::SchemaCollectionIndexes {
         &self,
         reference_field: &str,
         target_key: &RawKey,
-    ) -> EngineResult<Vec<RawKey>> {
+    ) -> StoreResult<Vec<RawKey>> {
         self.references
             .reverse_reference_keys(self.schema(), reference_field, target_key)
     }
@@ -458,7 +458,7 @@ impl crate::engine::index::SchemaCollectionIndexes {
         &self,
         reference_field: &str,
         target_schema: &Schema,
-    ) -> EngineResult<()> {
+    ) -> StoreResult<()> {
         self.references
             .ensure_reference_targets(self.schema(), reference_field, target_schema)
     }

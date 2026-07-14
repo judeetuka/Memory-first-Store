@@ -1,7 +1,7 @@
-use crate::engine::raw::{RawCollectionSnapshot, RawEngineSnapshot, RawSnapshotRecord};
-use crate::engine::{
-    CheckpointCorruptionKind, DocumentVersion, EngineConfig, EngineError, EngineResult, Lsn,
-    NoSqlEngine, RawKey, RawValue, RawWalReplayStats, replay_raw_wal_after,
+use crate::store::raw::{RawCollectionSnapshot, RawStoreSnapshot, RawSnapshotRecord};
+use crate::store::{
+    CheckpointCorruptionKind, DocumentVersion, MfsStoreConfig, StoreError, StoreResult, Lsn,
+    MfsStore, RawKey, RawValue, RawWalReplayStats, replay_raw_wal_after,
 };
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -48,19 +48,19 @@ pub struct RawCheckpointSource {
 pub struct RawCheckpointLoad {
     pub path: PathBuf,
     pub metadata: RawCheckpointMetadata,
-    pub engine: NoSqlEngine,
+    pub engine: MfsStore,
 }
 
 #[derive(Debug, Clone)]
 pub struct RawRecovery {
-    pub engine: NoSqlEngine,
+    pub engine: MfsStore,
     pub checkpoint: Option<RawCheckpointSource>,
     pub wal: RawWalReplayStats,
 }
 
 struct DecodedRawCheckpoint {
     metadata: RawCheckpointMetadata,
-    snapshot: RawEngineSnapshot,
+    snapshot: RawStoreSnapshot,
 }
 
 pub fn raw_checkpoint_path(dir: impl AsRef<Path>, checkpoint_lsn: Lsn) -> PathBuf {
@@ -75,9 +75,9 @@ pub fn raw_checkpoint_path(dir: impl AsRef<Path>, checkpoint_lsn: Lsn) -> PathBu
 
 pub fn write_raw_checkpoint_to_dir(
     dir: impl AsRef<Path>,
-    engine: &NoSqlEngine,
+    engine: &MfsStore,
     checkpoint_lsn: Lsn,
-) -> EngineResult<RawCheckpointMetadata> {
+) -> StoreResult<RawCheckpointMetadata> {
     let dir = dir.as_ref();
     fs::create_dir_all(dir).map_err(|e| checkpoint_io(dir, "create checkpoint directory", e))?;
     let path = raw_checkpoint_path(dir, checkpoint_lsn);
@@ -86,9 +86,9 @@ pub fn write_raw_checkpoint_to_dir(
 
 pub fn write_raw_checkpoint(
     path: impl AsRef<Path>,
-    engine: &NoSqlEngine,
+    engine: &MfsStore,
     checkpoint_lsn: Lsn,
-) -> EngineResult<RawCheckpointMetadata> {
+) -> StoreResult<RawCheckpointMetadata> {
     let path = path.as_ref();
     let snapshot = engine.raw_snapshot();
     let metadata = metadata_for_snapshot(engine.config(), checkpoint_lsn, &snapshot);
@@ -118,14 +118,14 @@ pub fn write_raw_checkpoint(
     result.map(|()| metadata)
 }
 
-pub fn read_raw_checkpoint_metadata(path: impl AsRef<Path>) -> EngineResult<RawCheckpointMetadata> {
+pub fn read_raw_checkpoint_metadata(path: impl AsRef<Path>) -> StoreResult<RawCheckpointMetadata> {
     read_decoded_checkpoint(path.as_ref()).map(|decoded| decoded.metadata)
 }
 
 pub fn load_latest_raw_checkpoint(
     dir: impl AsRef<Path>,
-    config: EngineConfig,
-) -> EngineResult<Option<RawCheckpointLoad>> {
+    config: MfsStoreConfig,
+) -> StoreResult<Option<RawCheckpointLoad>> {
     let dir = dir.as_ref();
     if !dir.exists() {
         return Ok(None);
@@ -151,7 +151,7 @@ pub fn load_latest_raw_checkpoint(
                     best = Some((path, decoded));
                 }
             }
-            Err(EngineError::CheckpointCorruption { .. }) => continue,
+            Err(StoreError::CheckpointCorruption { .. }) => continue,
             Err(err) => return Err(err),
         }
     }
@@ -159,7 +159,7 @@ pub fn load_latest_raw_checkpoint(
     let Some((path, decoded)) = best else {
         return Ok(None);
     };
-    let engine = NoSqlEngine::from_raw_snapshot(config, decoded.snapshot)?;
+    let engine = MfsStore::from_raw_snapshot(config, decoded.snapshot)?;
     Ok(Some(RawCheckpointLoad {
         path,
         metadata: decoded.metadata,
@@ -170,8 +170,8 @@ pub fn load_latest_raw_checkpoint(
 pub fn recover_raw_checkpoint_then_wal(
     checkpoint_dir: impl AsRef<Path>,
     wal_path: impl AsRef<Path>,
-    config: EngineConfig,
-) -> EngineResult<RawRecovery> {
+    config: MfsStoreConfig,
+) -> StoreResult<RawRecovery> {
     let loaded = load_latest_raw_checkpoint(checkpoint_dir, config.clone())?;
     let (engine, checkpoint, after_lsn) = match loaded {
         Some(load) => {
@@ -182,7 +182,7 @@ pub fn recover_raw_checkpoint_then_wal(
             };
             (load.engine, Some(checkpoint), after_lsn)
         }
-        None => (NoSqlEngine::open_memory(config)?, None, Lsn::ZERO),
+        None => (MfsStore::open_memory(config)?, None, Lsn::ZERO),
     };
 
     let wal = replay_raw_wal_after(wal_path, &engine, after_lsn)?;
@@ -194,9 +194,9 @@ pub fn recover_raw_checkpoint_then_wal(
 }
 
 fn metadata_for_snapshot(
-    config: &EngineConfig,
+    config: &MfsStoreConfig,
     checkpoint_lsn: Lsn,
-    snapshot: &RawEngineSnapshot,
+    snapshot: &RawStoreSnapshot,
 ) -> RawCheckpointMetadata {
     let collections = snapshot
         .collections
@@ -224,8 +224,8 @@ fn metadata_for_snapshot(
 
 fn encode_checkpoint(
     metadata: &RawCheckpointMetadata,
-    snapshot: &RawEngineSnapshot,
-) -> EngineResult<Vec<u8>> {
+    snapshot: &RawStoreSnapshot,
+) -> StoreResult<Vec<u8>> {
     let mut payload = Vec::with_capacity(256);
     payload.extend_from_slice(&metadata.checkpoint_lsn.get().to_le_bytes());
     write_u64(metadata.engine_max_collections, &mut payload)?;
@@ -266,7 +266,7 @@ fn encode_checkpoint(
     Ok(out)
 }
 
-fn read_decoded_checkpoint(path: &Path) -> EngineResult<DecodedRawCheckpoint> {
+fn read_decoded_checkpoint(path: &Path) -> StoreResult<DecodedRawCheckpoint> {
     let mut file = File::open(path).map_err(|e| checkpoint_io(path, "open checkpoint", e))?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
@@ -274,7 +274,7 @@ fn read_decoded_checkpoint(path: &Path) -> EngineResult<DecodedRawCheckpoint> {
     decode_checkpoint(path, &bytes)
 }
 
-fn decode_checkpoint(path: &Path, bytes: &[u8]) -> EngineResult<DecodedRawCheckpoint> {
+fn decode_checkpoint(path: &Path, bytes: &[u8]) -> StoreResult<DecodedRawCheckpoint> {
     if bytes.len() < HEADER_LEN + CHECKSUM_LEN {
         return Err(corrupt(path, CheckpointCorruptionKind::MalformedCheckpoint));
     }
@@ -317,7 +317,7 @@ fn decode_checkpoint(path: &Path, bytes: &[u8]) -> EngineResult<DecodedRawCheckp
     decode_payload(path, version, &bytes[HEADER_LEN..checksum_offset])
 }
 
-fn decode_payload(path: &Path, version: u16, payload: &[u8]) -> EngineResult<DecodedRawCheckpoint> {
+fn decode_payload(path: &Path, version: u16, payload: &[u8]) -> StoreResult<DecodedRawCheckpoint> {
     let mut cursor = 0usize;
     let checkpoint_lsn = Lsn::new(read_u64(payload, &mut cursor, path)?);
     let engine_max_collections = read_usize_from_u64(payload, &mut cursor, path)?;
@@ -391,11 +391,11 @@ fn decode_payload(path: &Path, version: u16, payload: &[u8]) -> EngineResult<Dec
             record_count,
             collections: collection_metadata,
         },
-        snapshot: RawEngineSnapshot { collections },
+        snapshot: RawStoreSnapshot { collections },
     })
 }
 
-fn write_u32(value: usize, out: &mut Vec<u8>) -> EngineResult<()> {
+fn write_u32(value: usize, out: &mut Vec<u8>) -> StoreResult<()> {
     let value = u32::try_from(value).map_err(|_| {
         corrupt(
             Path::new("<encode>"),
@@ -406,7 +406,7 @@ fn write_u32(value: usize, out: &mut Vec<u8>) -> EngineResult<()> {
     Ok(())
 }
 
-fn write_u64(value: usize, out: &mut Vec<u8>) -> EngineResult<()> {
+fn write_u64(value: usize, out: &mut Vec<u8>) -> StoreResult<()> {
     let value = u64::try_from(value).map_err(|_| {
         corrupt(
             Path::new("<encode>"),
@@ -417,7 +417,7 @@ fn write_u64(value: usize, out: &mut Vec<u8>) -> EngineResult<()> {
     Ok(())
 }
 
-fn write_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) -> EngineResult<()> {
+fn write_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) -> StoreResult<()> {
     if bytes.len() > MAX_CHECKPOINT_FIELD_BYTES {
         return Err(corrupt(
             Path::new("<encode>"),
@@ -429,7 +429,7 @@ fn write_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) -> EngineResult<()> {
     Ok(())
 }
 
-fn read_u8(payload: &[u8], cursor: &mut usize, path: &Path) -> EngineResult<u8> {
+fn read_u8(payload: &[u8], cursor: &mut usize, path: &Path) -> StoreResult<u8> {
     if payload.len().saturating_sub(*cursor) < 1 {
         return Err(corrupt(path, CheckpointCorruptionKind::MalformedCheckpoint));
     }
@@ -438,15 +438,15 @@ fn read_u8(payload: &[u8], cursor: &mut usize, path: &Path) -> EngineResult<u8> 
     Ok(value)
 }
 
-fn read_u32(payload: &[u8], cursor: &mut usize, path: &Path) -> EngineResult<u32> {
+fn read_u32(payload: &[u8], cursor: &mut usize, path: &Path) -> StoreResult<u32> {
     Ok(u32::from_le_bytes(read_exact::<4>(payload, cursor, path)?))
 }
 
-fn read_u64(payload: &[u8], cursor: &mut usize, path: &Path) -> EngineResult<u64> {
+fn read_u64(payload: &[u8], cursor: &mut usize, path: &Path) -> StoreResult<u64> {
     Ok(u64::from_le_bytes(read_exact::<8>(payload, cursor, path)?))
 }
 
-fn read_usize_from_u64(payload: &[u8], cursor: &mut usize, path: &Path) -> EngineResult<usize> {
+fn read_usize_from_u64(payload: &[u8], cursor: &mut usize, path: &Path) -> StoreResult<usize> {
     usize::try_from(read_u64(payload, cursor, path)?)
         .map_err(|_| corrupt(path, CheckpointCorruptionKind::FieldTooLarge))
 }
@@ -455,7 +455,7 @@ fn validate_collection_count(
     path: &Path,
     collection_count: usize,
     remaining_payload: usize,
-) -> EngineResult<()> {
+) -> StoreResult<()> {
     if collection_count > remaining_payload / MIN_COLLECTION_PAYLOAD_BYTES {
         return Err(corrupt(path, CheckpointCorruptionKind::MalformedCheckpoint));
     }
@@ -466,14 +466,14 @@ fn validate_record_count(
     path: &Path,
     record_count: usize,
     remaining_payload: usize,
-) -> EngineResult<()> {
+) -> StoreResult<()> {
     if record_count > remaining_payload / MIN_RECORD_PAYLOAD_BYTES {
         return Err(corrupt(path, CheckpointCorruptionKind::MalformedCheckpoint));
     }
     Ok(())
 }
 
-fn read_bytes<'a>(payload: &'a [u8], cursor: &mut usize, path: &Path) -> EngineResult<&'a [u8]> {
+fn read_bytes<'a>(payload: &'a [u8], cursor: &mut usize, path: &Path) -> StoreResult<&'a [u8]> {
     let len = read_u32(payload, cursor, path)? as usize;
     if len > MAX_CHECKPOINT_FIELD_BYTES {
         return Err(corrupt(path, CheckpointCorruptionKind::FieldTooLarge));
@@ -490,7 +490,7 @@ fn read_exact<const N: usize>(
     payload: &[u8],
     cursor: &mut usize,
     path: &Path,
-) -> EngineResult<[u8; N]> {
+) -> StoreResult<[u8; N]> {
     if payload.len().saturating_sub(*cursor) < N {
         return Err(corrupt(path, CheckpointCorruptionKind::MalformedCheckpoint));
     }
@@ -520,22 +520,22 @@ fn temp_path_for(path: &Path) -> PathBuf {
     ))
 }
 
-fn sync_parent_dir(path: &Path) -> EngineResult<()> {
+fn sync_parent_dir(path: &Path) -> StoreResult<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let dir = File::open(parent).map_err(|e| checkpoint_io(parent, "open checkpoint parent", e))?;
     dir.sync_all()
         .map_err(|e| checkpoint_io(parent, "sync checkpoint parent", e))
 }
 
-fn corrupt(path: &Path, kind: CheckpointCorruptionKind) -> EngineError {
-    EngineError::CheckpointCorruption {
+fn corrupt(path: &Path, kind: CheckpointCorruptionKind) -> StoreError {
+    StoreError::CheckpointCorruption {
         path: path.display().to_string(),
         kind,
     }
 }
 
-fn checkpoint_io(path: &Path, operation: &'static str, error: io::Error) -> EngineError {
-    EngineError::CheckpointIo {
+fn checkpoint_io(path: &Path, operation: &'static str, error: io::Error) -> StoreError {
+    StoreError::CheckpointIo {
         operation,
         path: path.display().to_string(),
         message: error.to_string(),

@@ -1,4 +1,4 @@
-use crate::engine::DurabilityMode;
+use crate::store::DurabilityMode;
 use crate::schema_value::SchemaValue;
 use std::sync::Arc;
 

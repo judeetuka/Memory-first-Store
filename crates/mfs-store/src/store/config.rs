@@ -1,11 +1,11 @@
-use crate::engine::DurabilityMode;
+use crate::store::DurabilityMode;
 use std::path::PathBuf;
 
 pub const DEFAULT_MAX_COLLECTIONS: usize = 1024;
 pub const DEFAULT_RAW_INITIAL_CAPACITY: usize = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EngineConfig {
+pub struct MfsStoreConfig {
     pub max_collections: usize,
     pub raw_initial_capacity: usize,
     pub durability: DurabilityMode,
@@ -13,7 +13,7 @@ pub struct EngineConfig {
     pub checkpoint_dir: Option<PathBuf>,
 }
 
-impl Default for EngineConfig {
+impl Default for MfsStoreConfig {
     fn default() -> Self {
         Self {
             max_collections: DEFAULT_MAX_COLLECTIONS,
@@ -25,7 +25,7 @@ impl Default for EngineConfig {
     }
 }
 
-impl EngineConfig {
+impl MfsStoreConfig {
     pub fn with_durability(mut self, durability: DurabilityMode) -> Self {
         self.durability = durability;
         self

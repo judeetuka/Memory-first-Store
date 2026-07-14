@@ -1,5 +1,5 @@
-use crate::engine::{
-    DocumentVersion, EngineError, EngineResult, Lsn, NoSqlEngine, RawKey, RawValue, ReadOptions,
+use crate::store::{
+    DocumentVersion, StoreError, StoreResult, Lsn, MfsStore, RawKey, RawValue, ReadOptions,
     WalCorruptionKind,
 };
 use mfs_core::Operation;
@@ -45,7 +45,7 @@ pub struct RawWalSegmentWriter {
 pub struct RawWalSegmentReader;
 
 impl RawWalSegmentWriter {
-    pub fn open(path: impl AsRef<Path>) -> EngineResult<Self> {
+    pub fn open(path: impl AsRef<Path>) -> StoreResult<Self> {
         let path = path.as_ref().to_path_buf();
         let append_state = append_state_for_path(&path)?;
         let file = OpenOptions::new()
@@ -83,12 +83,12 @@ impl RawWalSegmentWriter {
         collection: &str,
         key: &RawKey,
         value: &RawValue,
-    ) -> EngineResult<Lsn> {
+    ) -> StoreResult<Lsn> {
         let version = self.next_record_version(collection, key);
         self.append_record(collection, Operation::Put, key, Some(value), version, true)
     }
 
-    pub fn append_delete(&mut self, collection: &str, key: &RawKey) -> EngineResult<Lsn> {
+    pub fn append_delete(&mut self, collection: &str, key: &RawKey) -> StoreResult<Lsn> {
         let version = self.next_record_version(collection, key);
         self.append_record(collection, Operation::Delete, key, None, version, true)
     }
@@ -99,7 +99,7 @@ impl RawWalSegmentWriter {
         key: &RawKey,
         value: &RawValue,
         version: DocumentVersion,
-    ) -> EngineResult<Lsn> {
+    ) -> StoreResult<Lsn> {
         self.append_record(collection, Operation::Put, key, Some(value), version, false)
     }
 
@@ -108,17 +108,17 @@ impl RawWalSegmentWriter {
         collection: &str,
         key: &RawKey,
         version: DocumentVersion,
-    ) -> EngineResult<Lsn> {
+    ) -> StoreResult<Lsn> {
         self.append_record(collection, Operation::Delete, key, None, version, false)
     }
 
-    pub fn flush(&mut self) -> EngineResult<()> {
+    pub fn flush(&mut self) -> StoreResult<()> {
         self.writer
             .flush()
             .map_err(|e| wal_io("flush raw WAL segment", e))
     }
 
-    pub fn sync_now(&mut self) -> EngineResult<()> {
+    pub fn sync_now(&mut self) -> StoreResult<()> {
         self.writer
             .flush()
             .map_err(|e| wal_io("flush raw WAL segment", e))?;
@@ -136,13 +136,13 @@ impl RawWalSegmentWriter {
         value: Option<&RawValue>,
         version: DocumentVersion,
         track_version: bool,
-    ) -> EngineResult<Lsn> {
+    ) -> StoreResult<Lsn> {
         let lsn = Lsn::new(self.next_lsn);
         self.next_lsn = self.next_lsn.saturating_add(1);
 
         encode_payload(&mut self.scratch, lsn, version, collection, op, key, value)?;
         let payload_len =
-            u32::try_from(self.scratch.len()).map_err(|_| EngineError::WalCorruption {
+            u32::try_from(self.scratch.len()).map_err(|_| StoreError::WalCorruption {
                 offset: 0,
                 kind: WalCorruptionKind::PayloadTooLarge,
             })?;
@@ -183,7 +183,7 @@ impl RawWalSegmentWriter {
 }
 
 impl RawWalSegmentReader {
-    pub fn read_records(path: impl AsRef<Path>) -> EngineResult<Vec<RawWalRecord>> {
+    pub fn read_records(path: impl AsRef<Path>) -> StoreResult<Vec<RawWalRecord>> {
         let mut records = Vec::new();
         scan_records(path, |record| {
             records.push(record);
@@ -194,8 +194,8 @@ impl RawWalSegmentReader {
 
     pub fn replay_into(
         path: impl AsRef<Path>,
-        engine: &NoSqlEngine,
-    ) -> EngineResult<RawWalReplayStats> {
+        engine: &MfsStore,
+    ) -> StoreResult<RawWalReplayStats> {
         let mut stats = RawWalReplayStats {
             records: 0,
             last_lsn: Lsn::ZERO,
@@ -213,9 +213,9 @@ impl RawWalSegmentReader {
 
     pub fn replay_after(
         path: impl AsRef<Path>,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         after_lsn: Lsn,
-    ) -> EngineResult<RawWalReplayStats> {
+    ) -> StoreResult<RawWalReplayStats> {
         let mut stats = RawWalReplayStats {
             records: 0,
             last_lsn: Lsn::ZERO,
@@ -236,16 +236,16 @@ impl RawWalSegmentReader {
 
 pub fn replay_raw_wal(
     path: impl AsRef<Path>,
-    engine: &NoSqlEngine,
-) -> EngineResult<RawWalReplayStats> {
+    engine: &MfsStore,
+) -> StoreResult<RawWalReplayStats> {
     RawWalSegmentReader::replay_into(path, engine)
 }
 
 pub fn replay_raw_wal_after(
     path: impl AsRef<Path>,
-    engine: &NoSqlEngine,
+    engine: &MfsStore,
     after_lsn: Lsn,
-) -> EngineResult<RawWalReplayStats> {
+) -> StoreResult<RawWalReplayStats> {
     RawWalSegmentReader::replay_after(path, engine, after_lsn)
 }
 
@@ -255,7 +255,7 @@ struct RawWalAppendState {
     record_versions: HashMap<(String, RawKey), DocumentVersion>,
 }
 
-fn append_state_for_path(path: &Path) -> EngineResult<RawWalAppendState> {
+fn append_state_for_path(path: &Path) -> StoreResult<RawWalAppendState> {
     let mut last_lsn = Lsn::ZERO;
     let mut record_versions = HashMap::new();
     if !path.exists() {
@@ -288,15 +288,15 @@ struct RawWalScan {
 
 fn scan_records(
     path: impl AsRef<Path>,
-    on_record: impl FnMut(RawWalRecord) -> EngineResult<()>,
-) -> EngineResult<RawWalReplayStats> {
+    on_record: impl FnMut(RawWalRecord) -> StoreResult<()>,
+) -> StoreResult<RawWalReplayStats> {
     scan_records_with_offsets(path, on_record).map(|scan| scan.stats)
 }
 
 fn scan_records_with_offsets(
     path: impl AsRef<Path>,
-    mut on_record: impl FnMut(RawWalRecord) -> EngineResult<()>,
-) -> EngineResult<RawWalScan> {
+    mut on_record: impl FnMut(RawWalRecord) -> StoreResult<()>,
+) -> StoreResult<RawWalScan> {
     let path = path.as_ref();
     if !path.exists() {
         return Ok(RawWalScan {
@@ -386,7 +386,7 @@ fn scan_records_with_offsets(
     })
 }
 
-fn apply_raw_record(engine: &NoSqlEngine, record: &RawWalRecord) -> EngineResult<()> {
+fn apply_raw_record(engine: &MfsStore, record: &RawWalRecord) -> StoreResult<()> {
     ensure_raw_collection(engine, &record.collection)?;
     match record.op {
         Operation::Put => {
@@ -413,15 +413,15 @@ fn apply_raw_record(engine: &NoSqlEngine, record: &RawWalRecord) -> EngineResult
     Ok(())
 }
 
-fn ensure_raw_collection(engine: &NoSqlEngine, collection: &str) -> EngineResult<()> {
+fn ensure_raw_collection(engine: &MfsStore, collection: &str) -> StoreResult<()> {
     match engine.create_raw_collection(collection) {
         Ok(_) => Ok(()),
-        Err(EngineError::CollectionAlreadyExists { .. }) => Ok(()),
-        Err(EngineError::CollectionLimitExceeded { .. }) => {
+        Err(StoreError::CollectionAlreadyExists { .. }) => Ok(()),
+        Err(StoreError::CollectionLimitExceeded { .. }) => {
             let probe = RawKey::from(&b"__mfs_collection_probe__"[..]);
             match engine.get_raw(collection, &probe, ReadOptions::default()) {
                 Ok(_) => Ok(()),
-                Err(_) => Err(EngineError::CollectionLimitExceeded {
+                Err(_) => Err(StoreError::CollectionLimitExceeded {
                     max_collections: engine.config().max_collections,
                 }),
             }
@@ -438,7 +438,7 @@ fn encode_payload(
     op: Operation,
     key: &RawKey,
     value: Option<&RawValue>,
-) -> EngineResult<()> {
+) -> StoreResult<()> {
     let collection_bytes = collection.as_bytes();
     validate_field_len(collection_bytes.len())?;
     validate_field_len(key.as_bytes().len())?;
@@ -461,7 +461,7 @@ fn encode_payload(
     Ok(())
 }
 
-fn decode_payload(payload: &[u8], record_start: u64) -> EngineResult<RawWalRecord> {
+fn decode_payload(payload: &[u8], record_start: u64) -> StoreResult<RawWalRecord> {
     let mut cursor = 0usize;
     let version = read_u16(payload, &mut cursor, record_start)?;
     if version != RAW_WAL_FORMAT_VERSION {
@@ -507,7 +507,7 @@ fn decode_payload(payload: &[u8], record_start: u64) -> EngineResult<RawWalRecor
     })
 }
 
-fn validate_field_len(len: usize) -> EngineResult<()> {
+fn validate_field_len(len: usize) -> StoreResult<()> {
     if len > RAW_WAL_MAX_FIELD_BYTES || len > u32::MAX as usize {
         return Err(corrupt(0, WalCorruptionKind::FieldTooLarge));
     }
@@ -520,7 +520,7 @@ fn write_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) {
     out.extend_from_slice(bytes);
 }
 
-fn read_u8(payload: &[u8], cursor: &mut usize, offset: u64) -> EngineResult<u8> {
+fn read_u8(payload: &[u8], cursor: &mut usize, offset: u64) -> StoreResult<u8> {
     if payload.len().saturating_sub(*cursor) < 1 {
         return Err(corrupt(offset, WalCorruptionKind::MalformedRecord));
     }
@@ -529,25 +529,25 @@ fn read_u8(payload: &[u8], cursor: &mut usize, offset: u64) -> EngineResult<u8> 
     Ok(value)
 }
 
-fn read_u16(payload: &[u8], cursor: &mut usize, offset: u64) -> EngineResult<u16> {
+fn read_u16(payload: &[u8], cursor: &mut usize, offset: u64) -> StoreResult<u16> {
     Ok(u16::from_le_bytes(read_exact::<2>(
         payload, cursor, offset,
     )?))
 }
 
-fn read_u32(payload: &[u8], cursor: &mut usize, offset: u64) -> EngineResult<u32> {
+fn read_u32(payload: &[u8], cursor: &mut usize, offset: u64) -> StoreResult<u32> {
     Ok(u32::from_le_bytes(read_exact::<4>(
         payload, cursor, offset,
     )?))
 }
 
-fn read_u64(payload: &[u8], cursor: &mut usize, offset: u64) -> EngineResult<u64> {
+fn read_u64(payload: &[u8], cursor: &mut usize, offset: u64) -> StoreResult<u64> {
     Ok(u64::from_le_bytes(read_exact::<8>(
         payload, cursor, offset,
     )?))
 }
 
-fn read_bytes<'a>(payload: &'a [u8], cursor: &mut usize, offset: u64) -> EngineResult<&'a [u8]> {
+fn read_bytes<'a>(payload: &'a [u8], cursor: &mut usize, offset: u64) -> StoreResult<&'a [u8]> {
     let len = read_u32(payload, cursor, offset)? as usize;
     if len > RAW_WAL_MAX_FIELD_BYTES {
         return Err(corrupt(offset, WalCorruptionKind::FieldTooLarge));
@@ -564,7 +564,7 @@ fn read_exact<const N: usize>(
     payload: &[u8],
     cursor: &mut usize,
     offset: u64,
-) -> EngineResult<[u8; N]> {
+) -> StoreResult<[u8; N]> {
     if payload.len().saturating_sub(*cursor) < N {
         return Err(corrupt(offset, WalCorruptionKind::MalformedRecord));
     }
@@ -582,12 +582,12 @@ fn op_code(op: Operation) -> u8 {
     }
 }
 
-fn corrupt(offset: u64, kind: WalCorruptionKind) -> EngineError {
-    EngineError::WalCorruption { offset, kind }
+fn corrupt(offset: u64, kind: WalCorruptionKind) -> StoreError {
+    StoreError::WalCorruption { offset, kind }
 }
 
-fn wal_io(operation: &'static str, error: io::Error) -> EngineError {
-    EngineError::WalIo {
+fn wal_io(operation: &'static str, error: io::Error) -> StoreError {
+    StoreError::WalIo {
         operation,
         message: error.to_string(),
     }

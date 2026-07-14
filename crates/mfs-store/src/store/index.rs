@@ -1,6 +1,6 @@
-use crate::engine::reference::{SchemaCollectionReferences, SchemaReferenceWritePlan};
-use crate::engine::{
-    DocumentVersion, EngineError, EngineResult, NoSqlEngine, RawKey, RawValue, ReadOptions,
+use crate::store::reference::{SchemaCollectionReferences, SchemaReferenceWritePlan};
+use crate::store::{
+    DocumentVersion, StoreError, StoreResult, MfsStore, RawKey, RawValue, ReadOptions,
     schema_document_raw_key,
 };
 use crate::schema::{Schema, SchemaFieldType};
@@ -56,16 +56,16 @@ pub(crate) enum SchemaExactIndexKey {
     Bytes(Vec<u8>),
 }
 
-impl NoSqlEngine {
+impl MfsStore {
     pub(crate) fn install_schema_indexes(
         &self,
         schema: &Schema,
         indexes: SchemaCollectionIndexes,
-    ) -> EngineResult<()> {
+    ) -> StoreResult<()> {
         let mut schema_indexes = self.inner.schema_indexes.write();
         if let Some(existing) = schema_indexes.get(&schema.name) {
             if existing.schema() != schema {
-                return Err(EngineError::SchemaDeclarationMismatch {
+                return Err(StoreError::SchemaDeclarationMismatch {
                     collection: schema.name.clone(),
                 });
             }
@@ -79,17 +79,17 @@ impl NoSqlEngine {
     pub(crate) fn ensure_schema_indexes(
         &self,
         schema: &Schema,
-    ) -> EngineResult<Arc<SchemaCollectionIndexes>> {
+    ) -> StoreResult<Arc<SchemaCollectionIndexes>> {
         schema
             .validate()
-            .map_err(|error| EngineError::SchemaDefinition {
+            .map_err(|error| StoreError::SchemaDefinition {
                 collection: schema.name.clone(),
                 error,
             })?;
 
         if let Some(existing) = self.schema_indexes_for_collection(&schema.name) {
             if existing.schema() != schema {
-                return Err(EngineError::SchemaDeclarationMismatch {
+                return Err(StoreError::SchemaDeclarationMismatch {
                     collection: schema.name.clone(),
                 });
             }
@@ -100,7 +100,7 @@ impl NoSqlEngine {
         let mut schema_indexes = self.inner.schema_indexes.write();
         match schema_indexes.get(&schema.name) {
             Some(existing) if existing.schema() == schema => Ok(Arc::clone(existing)),
-            Some(_) => Err(EngineError::SchemaDeclarationMismatch {
+            Some(_) => Err(StoreError::SchemaDeclarationMismatch {
                 collection: schema.name.clone(),
             }),
             None => {
@@ -123,7 +123,7 @@ impl NoSqlEngine {
         field: &str,
         value: &SchemaValue,
         options: ReadOptions,
-    ) -> EngineResult<Vec<SchemaLookupResult>> {
+    ) -> StoreResult<Vec<SchemaLookupResult>> {
         let state = self.ensure_schema_indexes(schema)?;
         let _read_unit = state.lock_read_unit();
         let (field_idx, query_key, keys) = state.lookup_keys(field, value)?;
@@ -152,14 +152,14 @@ impl NoSqlEngine {
         Ok(out)
     }
 
-    pub fn rebuild_schema_indexes(&self, schema: &Schema) -> EngineResult<usize> {
+    pub fn rebuild_schema_indexes(&self, schema: &Schema) -> StoreResult<usize> {
         let state = self.ensure_schema_indexes(schema)?;
         let snapshot = self.raw_snapshot();
         let collection = snapshot
             .collections
             .into_iter()
             .find(|collection| collection.name == schema.name)
-            .ok_or_else(|| EngineError::CollectionNotFound {
+            .ok_or_else(|| StoreError::CollectionNotFound {
                 collection: schema.name.clone(),
             })?;
 
@@ -181,10 +181,10 @@ impl NoSqlEngine {
 }
 
 impl SchemaCollectionIndexes {
-    pub(crate) fn new(schema: &Schema) -> EngineResult<Self> {
+    pub(crate) fn new(schema: &Schema) -> StoreResult<Self> {
         schema
             .validate()
-            .map_err(|error| EngineError::SchemaDefinition {
+            .map_err(|error| StoreError::SchemaDefinition {
                 collection: schema.name.clone(),
                 error,
             })?;
@@ -196,7 +196,7 @@ impl SchemaCollectionIndexes {
             .filter(|field| field.indexed || field.unique)
         {
             if !is_exact_index_type(&field.field_type) {
-                return Err(EngineError::UnsupportedExactIndex {
+                return Err(StoreError::UnsupportedExactIndex {
                     collection: schema.name.clone(),
                     field: field.name.clone(),
                 });
@@ -236,11 +236,11 @@ impl SchemaCollectionIndexes {
 
     pub(crate) fn prepare_put(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         primary_key: &RawKey,
         old: Option<&SchemaValue>,
         new: &SchemaValue,
-    ) -> EngineResult<SchemaIndexWritePlan> {
+    ) -> StoreResult<SchemaIndexWritePlan> {
         let old_entries = match old {
             Some(document) => self.document_index_entries(document)?,
             None => Vec::new(),
@@ -260,9 +260,9 @@ impl SchemaCollectionIndexes {
 
     pub(crate) fn prepare_delete(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         old: Option<&SchemaValue>,
-    ) -> EngineResult<SchemaIndexWritePlan> {
+    ) -> StoreResult<SchemaIndexWritePlan> {
         let old_entries = match old {
             Some(document) => self.document_index_entries(document)?,
             None => Vec::new(),
@@ -302,9 +302,9 @@ impl SchemaCollectionIndexes {
         &self,
         field: &str,
         value: &SchemaValue,
-    ) -> EngineResult<(usize, SchemaExactIndexKey, Vec<RawKey>)> {
+    ) -> StoreResult<(usize, SchemaExactIndexKey, Vec<RawKey>)> {
         let Some((idx, indexed_field)) = self.indexed_field(field) else {
-            return Err(EngineError::UnindexedField {
+            return Err(StoreError::UnindexedField {
                 collection: self.schema.name.clone(),
                 field: field.to_string(),
             });
@@ -328,7 +328,7 @@ impl SchemaCollectionIndexes {
     fn document_index_entries(
         &self,
         document: &SchemaValue,
-    ) -> EngineResult<Vec<PreparedIndexEntry>> {
+    ) -> StoreResult<Vec<PreparedIndexEntry>> {
         let mut entries = Vec::new();
         for (field_idx, field) in self.indexed_fields.iter().enumerate() {
             let Some(value) = document.field(&field.name) else {
@@ -352,10 +352,10 @@ impl SchemaCollectionIndexes {
 
     fn validate_unique_constraints(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         primary_key: &RawKey,
         entries: &[PreparedIndexEntry],
-    ) -> EngineResult<()> {
+    ) -> StoreResult<()> {
         for entry in entries {
             let field = &self.indexed_fields[entry.field_idx];
             if !field.unique {
@@ -373,7 +373,7 @@ impl SchemaCollectionIndexes {
                     continue;
                 }
                 if self.raw_document_matches_index(engine, &existing, field, &entry.key)? {
-                    return Err(EngineError::UniqueIndexConflict {
+                    return Err(StoreError::UniqueIndexConflict {
                         collection: self.schema.name.clone(),
                         field: field.name.clone(),
                         existing,
@@ -386,11 +386,11 @@ impl SchemaCollectionIndexes {
 
     fn raw_document_matches_index(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         primary_key: &RawKey,
         field: &IndexedField,
         expected_key: &SchemaExactIndexKey,
-    ) -> EngineResult<bool> {
+    ) -> StoreResult<bool> {
         // Writer already holds the write lock; use raw access directly
         // so we never try to acquire a read lock on the same RwLock.
         let Some(raw) = engine.get_raw(&self.schema.name, primary_key, ReadOptions::default())?
@@ -409,7 +409,7 @@ impl SchemaCollectionIndexes {
         field: &IndexedField,
         expected_key: &SchemaExactIndexKey,
         document: &SchemaValue,
-    ) -> EngineResult<bool> {
+    ) -> StoreResult<bool> {
         let Some(value) = document.field(&field.name) else {
             return Ok(false);
         };
@@ -424,9 +424,9 @@ impl SchemaCollectionIndexes {
 
     fn rebuild_from_documents(
         &self,
-        engine: &NoSqlEngine,
+        engine: &MfsStore,
         documents: Vec<(RawKey, SchemaValue)>,
-    ) -> EngineResult<()> {
+    ) -> StoreResult<()> {
         let mut rebuilt_indexes = (0..self.indexed_fields.len())
             .map(|_| HashMap::new())
             .collect::<Vec<SchemaIndexMap>>();
@@ -445,7 +445,7 @@ impl SchemaCollectionIndexes {
                         .find(|existing| *existing != &primary_key)
                         .expect("unique conflict key exists")
                         .clone();
-                    return Err(EngineError::UniqueIndexConflict {
+                    return Err(StoreError::UniqueIndexConflict {
                         collection: self.schema.name.clone(),
                         field: field.name.clone(),
                         existing,
@@ -477,13 +477,13 @@ impl SchemaCollectionIndexes {
 pub(crate) fn decode_schema_raw_value(
     schema: &Schema,
     raw: &RawValue,
-) -> EngineResult<SchemaValue> {
+) -> StoreResult<SchemaValue> {
     let document =
-        decode_schema_value(raw.as_bytes()).map_err(|error| EngineError::SchemaDecode {
+        decode_schema_value(raw.as_bytes()).map_err(|error| StoreError::SchemaDecode {
             collection: schema.name.clone(),
             message: error.to_string(),
         })?;
-    validate_document(schema, &document).map_err(|error| EngineError::SchemaDocument {
+    validate_document(schema, &document).map_err(|error| StoreError::SchemaDocument {
         collection: schema.name.clone(),
         error,
     })?;
@@ -495,7 +495,7 @@ pub(crate) fn index_key_from_value(
     field: &str,
     field_type: &SchemaFieldType,
     value: &SchemaValue,
-) -> EngineResult<SchemaExactIndexKey> {
+) -> StoreResult<SchemaExactIndexKey> {
     match (field_type, value) {
         (SchemaFieldType::String, SchemaValue::String(value)) => {
             Ok(SchemaExactIndexKey::String(value.clone()))
@@ -551,8 +551,8 @@ fn index_key_mismatch(
     field: &str,
     expected: &SchemaFieldType,
     actual: SchemaValueKind,
-) -> EngineError {
-    EngineError::SchemaIndexKeyTypeMismatch {
+) -> StoreError {
+    StoreError::SchemaIndexKeyTypeMismatch {
         collection: collection.to_string(),
         field: field.to_string(),
         expected: schema_type_name(expected),

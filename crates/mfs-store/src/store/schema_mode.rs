@@ -1,9 +1,9 @@
-use crate::engine::index::{
+use crate::store::index::{
     SchemaCollectionIndexes, SchemaIndexWritePlan, decode_schema_raw_value,
 };
-use crate::engine::{
-    CollectionId, DocumentVersion, EngineError, EngineResult, FieldUpdate, FieldUpdateOp,
-    NoSqlEngine, RawKey, RawValue, ReadOptions, WriteOptions, WriteResult,
+use crate::store::{
+    CollectionId, DocumentVersion, StoreError, StoreResult, FieldUpdate, FieldUpdateOp,
+    MfsStore, RawKey, RawValue, ReadOptions, WriteOptions, WriteResult,
 };
 use crate::schema::{Schema, SchemaField, SchemaFieldType};
 use crate::schema_value::{
@@ -19,8 +19,8 @@ pub struct SchemaReadResult {
     pub version: DocumentVersion,
 }
 
-impl NoSqlEngine {
-    pub fn create_schema_collection(&self, schema: &Schema) -> EngineResult<CollectionId> {
+impl MfsStore {
+    pub fn create_schema_collection(&self, schema: &Schema) -> StoreResult<CollectionId> {
         validate_schema(schema)?;
         let indexes = SchemaCollectionIndexes::new(schema)?;
         let id = self.create_raw_collection(schema.name.clone())?;
@@ -33,7 +33,7 @@ impl NoSqlEngine {
         schema: &Schema,
         document: SchemaValue,
         options: WriteOptions,
-    ) -> EngineResult<WriteResult> {
+    ) -> StoreResult<WriteResult> {
         let key = schema_document_raw_key(schema, &document)?;
         validate_document(schema, &document)
             .map_err(|error| schema_document_error(schema, error))?;
@@ -73,7 +73,7 @@ impl NoSqlEngine {
         schema: &Schema,
         primary_key: &SchemaValue,
         options: WriteOptions,
-    ) -> EngineResult<WriteResult> {
+    ) -> StoreResult<WriteResult> {
         let key = schema_primary_key_raw_key(schema, primary_key)?;
         let state = self.ensure_schema_indexes(schema)?;
         let prepared: RefCell<Option<SchemaIndexWritePlan>> = RefCell::new(None);
@@ -107,7 +107,7 @@ impl NoSqlEngine {
         schema: &Schema,
         primary_key: &SchemaValue,
         options: ReadOptions,
-    ) -> EngineResult<Option<SchemaReadResult>> {
+    ) -> StoreResult<Option<SchemaReadResult>> {
         let key = schema_primary_key_raw_key(schema, primary_key)?;
         let state = self.ensure_schema_indexes(schema)?;
         let _read_unit = state.lock_read_unit();
@@ -119,7 +119,7 @@ impl NoSqlEngine {
         schema: &Schema,
         key: &RawKey,
         options: ReadOptions,
-    ) -> EngineResult<Option<SchemaReadResult>> {
+    ) -> StoreResult<Option<SchemaReadResult>> {
         let Some(raw) = self.get_raw(&schema.name, key, options)? else {
             return Ok(None);
         };
@@ -141,7 +141,7 @@ impl NoSqlEngine {
         schema: &Schema,
         keys: &[SchemaValue],
         options: ReadOptions,
-    ) -> EngineResult<Vec<SchemaReadResult>> {
+    ) -> StoreResult<Vec<SchemaReadResult>> {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
@@ -165,7 +165,7 @@ impl NoSqlEngine {
     /// Count documents in a schema collection.
     ///
     /// Returns the total number of documents using the atomic per-collection counter.
-    pub fn count_schema(&self, schema: &Schema) -> EngineResult<u64> {
+    pub fn count_schema(&self, schema: &Schema) -> StoreResult<u64> {
         self.collection_count(&schema.name)
     }
 
@@ -180,7 +180,7 @@ impl NoSqlEngine {
         primary_key: &SchemaValue,
         operations: FieldUpdateOp,
         options: WriteOptions,
-    ) -> EngineResult<WriteResult> {
+    ) -> StoreResult<WriteResult> {
         const MAX_RETRIES: u32 = 3;
         let mut retries = 0;
 
@@ -188,7 +188,7 @@ impl NoSqlEngine {
             let current = match self.get_schema(schema, primary_key, ReadOptions::default())? {
                 Some(doc) => doc,
                 None => {
-                    return Err(EngineError::DocumentNotFound {
+                    return Err(StoreError::DocumentNotFound {
                         collection: schema.name.clone(),
                     });
                 }
@@ -197,7 +197,7 @@ impl NoSqlEngine {
             let mut encoded = Vec::new();
             encode_schema_value(&current.document, &mut encoded);
             let mut mutated = decode_schema_value(&encoded).map_err(|e| {
-                EngineError::SchemaDecode {
+                StoreError::SchemaDecode {
                     collection: schema.name.clone(),
                     message: e.to_string(),
                 }
@@ -206,7 +206,7 @@ impl NoSqlEngine {
             let primary_field =
                 schema
                     .primary_field()
-                    .ok_or_else(|| EngineError::SchemaMissingPrimaryField {
+                    .ok_or_else(|| StoreError::SchemaMissingPrimaryField {
                         collection: schema.name.clone(),
                     })?;
 
@@ -214,10 +214,10 @@ impl NoSqlEngine {
                 match update {
                     FieldUpdate::Set { field, value } => {
                         if field == &primary_field.name {
-                            return Err(EngineError::PrimaryKeyUpdateForbidden);
+                            return Err(StoreError::PrimaryKeyUpdateForbidden);
                         }
                         mutated.set_field(field, value.clone()).map_err(|_| {
-                            EngineError::InvalidUpdatePath {
+                            StoreError::InvalidUpdatePath {
                                 field: field.clone(),
                                 reason: "path traverses non-object or is otherwise invalid",
                             }
@@ -225,13 +225,13 @@ impl NoSqlEngine {
                     }
                     FieldUpdate::Unset { field } => {
                         if field == &primary_field.name {
-                            return Err(EngineError::PrimaryKeyUpdateForbidden);
+                            return Err(StoreError::PrimaryKeyUpdateForbidden);
                         }
                         mutated.unset_field(field);
                     }
                     FieldUpdate::Increment { field, delta } => {
                         if field == &primary_field.name {
-                            return Err(EngineError::PrimaryKeyUpdateForbidden);
+                            return Err(StoreError::PrimaryKeyUpdateForbidden);
                         }
                         mutated
                             .apply_increment(field, *delta)
@@ -241,7 +241,7 @@ impl NoSqlEngine {
             }
 
             validate_document(schema, &mutated).map_err(|error| {
-                EngineError::SchemaDocument {
+                StoreError::SchemaDocument {
                     collection: schema.name.clone(),
                     error,
                 }
@@ -256,10 +256,10 @@ impl NoSqlEngine {
                 },
             ) {
                 Ok(result) => return Ok(result),
-                Err(EngineError::Conflict { .. }) => {
+                Err(StoreError::Conflict { .. }) => {
                     retries += 1;
                     if retries >= MAX_RETRIES {
-                        return Err(EngineError::Conflict {
+                        return Err(StoreError::Conflict {
                             collection: schema.name.clone(),
                             key: schema_primary_key_raw_key(schema, primary_key)?,
                             expected: current.version,
@@ -274,14 +274,14 @@ impl NoSqlEngine {
 }
 
 
-pub fn schema_document_raw_key(schema: &Schema, document: &SchemaValue) -> EngineResult<RawKey> {
+pub fn schema_document_raw_key(schema: &Schema, document: &SchemaValue) -> StoreResult<RawKey> {
     validate_schema(schema)?;
     ensure_document_root(schema, document)?;
     let primary = primary_field(schema)?;
     let value =
         document
             .field(&primary.name)
-            .ok_or_else(|| EngineError::SchemaMissingPrimaryKey {
+            .ok_or_else(|| StoreError::SchemaMissingPrimaryKey {
                 collection: schema.name.clone(),
                 field: primary.name.clone(),
             })?;
@@ -292,22 +292,22 @@ pub fn schema_document_raw_key(schema: &Schema, document: &SchemaValue) -> Engin
 pub fn schema_primary_key_raw_key(
     schema: &Schema,
     primary_key: &SchemaValue,
-) -> EngineResult<RawKey> {
+) -> StoreResult<RawKey> {
     validate_schema(schema)?;
     let primary = primary_field(schema)?;
     primary_value_raw_key(schema, primary, primary_key)
 }
 
-pub(crate) fn validate_schema(schema: &Schema) -> EngineResult<()> {
+pub(crate) fn validate_schema(schema: &Schema) -> StoreResult<()> {
     schema
         .validate()
-        .map_err(|error| EngineError::SchemaDefinition {
+        .map_err(|error| StoreError::SchemaDefinition {
             collection: schema.name.clone(),
             error,
         })
 }
 
-fn ensure_document_root(schema: &Schema, document: &SchemaValue) -> EngineResult<()> {
+fn ensure_document_root(schema: &Schema, document: &SchemaValue) -> StoreResult<()> {
     if document.as_object().is_some() {
         return Ok(());
     }
@@ -320,10 +320,10 @@ fn ensure_document_root(schema: &Schema, document: &SchemaValue) -> EngineResult
     ))
 }
 
-fn primary_field(schema: &Schema) -> EngineResult<&SchemaField> {
+fn primary_field(schema: &Schema) -> StoreResult<&SchemaField> {
     schema
         .primary_field()
-        .ok_or_else(|| EngineError::SchemaMissingPrimaryField {
+        .ok_or_else(|| StoreError::SchemaMissingPrimaryField {
             collection: schema.name.clone(),
         })
 }
@@ -332,7 +332,7 @@ fn primary_value_raw_key(
     schema: &Schema,
     primary: &SchemaField,
     value: &SchemaValue,
-) -> EngineResult<RawKey> {
+) -> StoreResult<RawKey> {
     match (&primary.field_type, value) {
         (SchemaFieldType::String, SchemaValue::String(value)) => {
             Ok(RawKey::from(encode_key_bytes(0, value.as_bytes())))
@@ -380,8 +380,8 @@ fn primary_key_mismatch(
     schema: &Schema,
     primary: &SchemaField,
     value: &SchemaValue,
-) -> EngineError {
-    EngineError::SchemaPrimaryKeyTypeMismatch {
+) -> StoreError {
+    StoreError::SchemaPrimaryKeyTypeMismatch {
         collection: schema.name.clone(),
         field: primary.name.clone(),
         expected: schema_type_name(&primary.field_type),
@@ -389,8 +389,8 @@ fn primary_key_mismatch(
     }
 }
 
-pub(crate) fn schema_document_error(schema: &Schema, error: SchemaValueError) -> EngineError {
-    EngineError::SchemaDocument {
+pub(crate) fn schema_document_error(schema: &Schema, error: SchemaValueError) -> StoreError {
+    StoreError::SchemaDocument {
         collection: schema.name.clone(),
         error,
     }
@@ -410,29 +410,29 @@ fn schema_type_name(field_type: &SchemaFieldType) -> &'static str {
     }
 }
 
-fn map_increment_error(field: &str, err: &SchemaValueError) -> EngineError {
+fn map_increment_error(field: &str, err: &SchemaValueError) -> StoreError {
     let msg = err.to_string();
     if msg.contains("overflow") || msg.contains("NumericOverflow") {
-        EngineError::NumericOverflow {
+        StoreError::NumericOverflow {
             field: field.to_string(),
         }
     } else if msg.contains("incrementable") || msg.contains("NotIncrementable") {
         match err {
             SchemaValueError::NotIncrementable { actual, .. } => {
-                EngineError::UpdateTypeMismatch {
+                StoreError::UpdateTypeMismatch {
                     field: field.to_string(),
                     expected: "numeric",
                     actual: *actual,
                 }
             }
-            _ => EngineError::UpdateTypeMismatch {
+            _ => StoreError::UpdateTypeMismatch {
                 field: field.to_string(),
                 expected: "numeric",
                 actual: SchemaValueKind::Null,
             },
         }
     } else {
-        EngineError::InvalidUpdatePath {
+        StoreError::InvalidUpdatePath {
             field: field.to_string(),
             reason: "invalid for increment",
         }

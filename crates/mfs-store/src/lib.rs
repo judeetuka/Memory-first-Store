@@ -1,11 +1,11 @@
-//! Database engine primitives for `memory-first-store`.
+//! Durable hot storage layer for `memory-first-store`.
 
-pub mod engine;
+pub mod store;
 pub mod schema;
 pub mod schema_value;
 pub mod value;
 
-pub use engine::*;
+pub use store::*;
 pub use schema::*;
 pub use schema_value::*;
 pub use value::*;
@@ -14,10 +14,10 @@ pub use value::*;
 mod tests {
     use super::*;
 
-    fn small_config() -> EngineConfig {
-        EngineConfig {
+    fn small_config() -> MfsStoreConfig {
+        MfsStoreConfig {
             raw_initial_capacity: 16,
-            ..EngineConfig::default()
+            ..MfsStoreConfig::default()
         }
     }
 
@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn nosql_db_imports_compile_and_raw_round_trip() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let collection_id = engine
             .create_raw_collection("raw")
             .expect("create raw collection");
@@ -91,14 +91,14 @@ mod tests {
             .expect_err("stale expected version conflicts");
         assert!(matches!(
             stale,
-            EngineError::Conflict { expected, actual, .. }
+            StoreError::Conflict { expected, actual, .. }
                 if expected == put.version && actual == updated.version
         ));
     }
 
     #[test]
     fn nosql_schema_put_lookup_and_value_codecs_compile() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -167,7 +167,7 @@ mod tests {
         ])
     }
 
-    fn seed_users(engine: &NoSqlEngine, schema: &Schema, n: usize, base: i64) {
+    fn seed_users(engine: &MfsStore, schema: &Schema, n: usize, base: i64) {
         for i in 0..n {
             let id = format!("u{i}");
             let email = format!("u{i}@example.com");
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn update_set_field() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn update_unset_optional() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema_with_optional_bio();
         engine
             .create_schema_collection(&schema)
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn update_unset_required_errors() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -294,14 +294,14 @@ mod tests {
             )
             .expect_err("unset on primary field must fail");
         assert!(
-            matches!(err, EngineError::PrimaryKeyUpdateForbidden),
+            matches!(err, StoreError::PrimaryKeyUpdateForbidden),
             "expected PrimaryKeyUpdateForbidden, got {err:?}"
         );
     }
 
     #[test]
     fn update_increment_int64() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn update_increment_overflow() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -371,7 +371,7 @@ mod tests {
             )
             .expect_err("increment on i64::MAX must fail");
         match err {
-            EngineError::NumericOverflow { field } => {
+            StoreError::NumericOverflow { field } => {
                 assert_eq!(field, "age");
             }
             other => panic!("expected NumericOverflow, got {other:?}"),
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn update_increment_type_mismatch() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -408,7 +408,7 @@ mod tests {
             )
             .expect_err("increment on String field must fail");
         match err {
-            EngineError::UpdateTypeMismatch {
+            StoreError::UpdateTypeMismatch {
                 field,
                 expected,
                 actual,
@@ -423,7 +423,7 @@ mod tests {
 
     #[test]
     fn update_primary_key_forbidden() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -451,14 +451,14 @@ mod tests {
             )
             .expect_err("set on primary field must fail");
         assert!(
-            matches!(err, EngineError::PrimaryKeyUpdateForbidden),
+            matches!(err, StoreError::PrimaryKeyUpdateForbidden),
             "expected PrimaryKeyUpdateForbidden, got {err:?}"
         );
     }
 
     #[test]
     fn update_document_not_found() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -479,7 +479,7 @@ mod tests {
             )
             .expect_err("update on missing doc must fail");
         match err {
-            EngineError::DocumentNotFound { collection } => {
+            StoreError::DocumentNotFound { collection } => {
                 assert_eq!(collection, "users");
             }
             other => panic!("expected DocumentNotFound, got {other:?}"),
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn multiget_basic() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn multiget_missing() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -543,7 +543,7 @@ mod tests {
 
     #[test]
     fn multiget_dedup() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn multiget_empty() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -583,7 +583,7 @@ mod tests {
 
     #[test]
     fn count_unfiltered() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn count_after_delete() {
-        let engine = NoSqlEngine::open_memory(small_config()).expect("open memory engine");
+        let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
         let schema = user_schema();
         engine
             .create_schema_collection(&schema)

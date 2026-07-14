@@ -3,7 +3,7 @@ resolver = "3"
 members = [
     "crates/mfs-core",
     "crates/mfs-neural",
-    "crates/mfs-db",
+    "crates/mfs-store",
     "crates/mfs-compat",
     "crates/memory-first-store",
 ]
@@ -12,7 +12,7 @@ members = [
 version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "High-throughput memory-first hot data store with idle write-behind flush hooks and crash-recoverable WAL."
+description = "High-throughput memory-first hot storage with idle write-behind flush hooks and crash-recoverable WAL."
 
 [workspace.dependencies]
 parking_lot = "0.12"

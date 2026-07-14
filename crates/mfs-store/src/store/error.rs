@@ -1,12 +1,12 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::engine::semantics::DurabilityMode;
-use crate::engine::types::{DocumentVersion, RawKey};
+use crate::store::semantics::DurabilityMode;
+use crate::store::types::{DocumentVersion, RawKey};
 use crate::schema::SchemaError;
 use crate::schema_value::{SchemaValueError, SchemaValueKind};
 
-pub type EngineResult<T> = Result<T, EngineError>;
+pub type StoreResult<T> = Result<T, StoreError>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WalCorruptionKind {
@@ -60,7 +60,7 @@ impl WalCorruptionKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum EngineError {
+pub enum StoreError {
     InvalidConfig {
         field: &'static str,
         reason: &'static str,
@@ -189,11 +189,11 @@ pub enum EngineError {
     },
 }
 
-impl fmt::Display for EngineError {
+impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidConfig { field, reason } => {
-                write!(f, "invalid engine config `{field}`: {reason}")
+                write!(f, "invalid store config `{field}`: {reason}")
             }
             Self::CollectionAlreadyExists { collection } => {
                 write!(f, "collection `{collection}` already exists")
@@ -213,7 +213,7 @@ impl fmt::Display for EngineError {
             Self::UnsupportedDurability { requested } => {
                 write!(
                     f,
-                    "durability mode `{}` is not supported by this engine configuration",
+                    "durability mode `{}` is not supported by this store configuration",
                     requested.name()
                 )
             }
@@ -262,11 +262,11 @@ impl fmt::Display for EngineError {
             ),
             Self::SchemaDeclarationMismatch { collection } => write!(
                 f,
-                "schema declaration for `{collection}` does not match the registered engine schema"
+                "schema declaration for `{collection}` does not match the registered store schema"
             ),
             Self::UnsupportedExactIndex { collection, field } => write!(
                 f,
-                "schema `{collection}` field `{field}` cannot use the engine exact-match index"
+                "schema `{collection}` field `{field}` cannot use the store exact-match index"
             ),
             Self::UnindexedField { collection, field } => {
                 write!(f, "schema `{collection}` field `{field}` is not indexed")
@@ -360,4 +360,4 @@ impl fmt::Display for EngineError {
     }
 }
 
-impl Error for EngineError {}
+impl Error for StoreError {}

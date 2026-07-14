@@ -1,10 +1,10 @@
-//! Code-facing v1 storage semantics for the NoSQL engine.
+//! Code-facing v1 storage semantics for the in-memory hot store.
 //!
-//! This module freezes the contract that later engine modules implement. It is
+//! This module freezes the contract that later store modules implement. It is
 //! API, not a standalone design document.
 //!
-//! v1 is an embedded, single-process NoSQL engine. It has two front doors over
-//! one storage kernel:
+//! v1 is an embedded, single-process hot storage store. It has two front doors
+//! over one storage kernel:
 //!
 //! - raw key-value mode stores opaque byte keys and values;
 //! - schema mode validates [`crate::schema::Schema`] metadata and
@@ -15,8 +15,8 @@
 //! validation plus declared secondary indexes and declared references on top of
 //! that shared kernel.
 //!
-//! A write is one engine write unit. The primary record, declared secondary
-//! index entries, and bounded reference entries are applied atomically inside
+//! A write is one atomic write unit. The primary record, declared secondary
+//! index entries, and bounded reference entries are applied together inside
 //! that unit. A read sees either the state before the unit or the state after
 //! it, never a half-updated index or reference edge.
 //!
@@ -29,11 +29,11 @@
 //! recovery starts from an empty in-memory state and replays valid WAL records
 //! from the beginning.
 
-/// Complete v1 semantics contract for the NoSQL engine surface.
+/// Complete v1 semantics contract for the in-memory hot store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EngineSemantics {
-    pub scope: EngineScope,
-    pub modes: &'static [EngineMode],
+pub struct StoreSemantics {
+    pub scope: StoreScope,
+    pub modes: &'static [StoreMode],
     pub write_atomicity: WriteAtomicity,
     pub write_conflict_policies: &'static [WriteConflictPolicy],
     pub read_consistency: &'static [ReadConsistency],
@@ -41,13 +41,13 @@ pub struct EngineSemantics {
     pub recovery_precedence: RecoveryPrecedence,
     pub index_consistency: IndexConsistency,
     pub reference_limit: ReferenceLimit,
-    pub non_goals: &'static [EngineNonGoal],
+    pub non_goals: &'static [StoreNonGoal],
 }
 
-/// The v1 contract later engine code must preserve.
-pub const V1_ENGINE_SEMANTICS: EngineSemantics = EngineSemantics {
-    scope: EngineScope::EmbeddedSingleProcess,
-    modes: &EngineMode::VARIANTS,
+/// The v1 contract later store code must preserve.
+pub const V1_STORE_SEMANTICS: StoreSemantics = StoreSemantics {
+    scope: StoreScope::EmbeddedSingleProcess,
+    modes: &StoreMode::VARIANTS,
     write_atomicity: WriteAtomicity::PrimaryIndexesAndReferences,
     write_conflict_policies: &WriteConflictPolicy::VARIANTS,
     read_consistency: &ReadConsistency::VARIANTS,
@@ -55,17 +55,17 @@ pub const V1_ENGINE_SEMANTICS: EngineSemantics = EngineSemantics {
     recovery_precedence: RecoveryPrecedence::LatestCheckpointThenWal,
     index_consistency: IndexConsistency::DeclaredIndexesInWriteUnit,
     reference_limit: ReferenceLimit::DeclaredReferencesWithWriteBound,
-    non_goals: &EngineNonGoal::VARIANTS,
+    non_goals: &StoreNonGoal::VARIANTS,
 };
 
-/// Engine deployment scope for v1.
+/// Deployment scope for v1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum EngineScope {
-    /// The engine runs in the caller's process and owns no remote protocol.
+pub enum StoreScope {
+    /// The store runs in the caller's process and owns no remote protocol.
     EmbeddedSingleProcess,
 }
 
-impl EngineScope {
+impl StoreScope {
     pub const VARIANTS: [Self; 1] = [Self::EmbeddedSingleProcess];
 
     pub const fn name(self) -> &'static str {
@@ -77,7 +77,7 @@ impl EngineScope {
     pub const fn contract(self) -> &'static str {
         match self {
             Self::EmbeddedSingleProcess => {
-                "engine calls happen in-process; v1 does not define a network server or distributed behavior"
+                "store calls happen in-process; v1 does not define a network server or distributed behavior"
             }
         }
     }
@@ -85,14 +85,14 @@ impl EngineScope {
 
 /// Public storage modes backed by the same kernel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum EngineMode {
+pub enum StoreMode {
     /// Opaque byte keys and values, with no schema validation.
     RawKv,
     /// Schema-checked documents using the existing schema and schema-value types.
     Schema,
 }
 
-impl EngineMode {
+impl StoreMode {
     pub const VARIANTS: [Self; 2] = [Self::RawKv, Self::Schema];
 
     pub const fn name(self) -> &'static str {
@@ -114,7 +114,7 @@ impl EngineMode {
     }
 }
 
-/// Atomic scope of one committed engine write.
+/// Atomic scope of one committed store write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WriteAtomicity {
     /// Primary data, declared secondary indexes, and bounded references commit as one unit.
@@ -185,7 +185,7 @@ impl WriteConflictPolicy {
 pub enum ReadConsistency {
     /// A single read returns the latest committed value visible at its operation boundary.
     LatestCommitted,
-    /// After a successful write returns, later reads on the same engine handle can observe it
+    /// After a successful write returns, later reads on the same store handle can observe it
     /// unless another committed write has replaced it.
     ReadOwnWrites,
 }
@@ -206,7 +206,7 @@ impl ReadConsistency {
                 "a read returns a fully committed state, not a partially applied write unit"
             }
             Self::ReadOwnWrites => {
-                "a later read on the same engine handle can observe a completed write unless another write supersedes it"
+                "a later read on the same store handle can observe a completed write unless another write supersedes it"
             }
         }
     }
@@ -273,7 +273,7 @@ impl DurabilityMode {
     }
 }
 
-/// Recovery order for durable engine state.
+/// Recovery order for durable store state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RecoveryPrecedence {
     /// Load the latest valid checkpoint, then replay WAL records after its LSN.
@@ -348,9 +348,9 @@ impl ReferenceLimit {
     }
 }
 
-/// Features intentionally outside the v1 engine contract.
+/// Features intentionally outside the v1 store contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum EngineNonGoal {
+pub enum StoreNonGoal {
     /// Non-goal: v1 does not provide SQL compatibility.
     SqlCompatibility,
     /// Non-goal: v1 does not provide a network server.
@@ -373,7 +373,7 @@ pub enum EngineNonGoal {
     HandwrittenAssembly,
 }
 
-impl EngineNonGoal {
+impl StoreNonGoal {
     pub const VARIANTS: [Self; 10] = [
         Self::SqlCompatibility,
         Self::NetworkServer,
@@ -405,26 +405,26 @@ impl EngineNonGoal {
     pub const fn contract(self) -> &'static str {
         match self {
             Self::SqlCompatibility => {
-                "non-goal: SQL compatibility belongs outside the v1 engine core"
+                "non-goal: SQL compatibility belongs outside the v1 store core"
             }
             Self::NetworkServer => {
-                "non-goal: network server support belongs outside the v1 engine core"
+                "non-goal: network server support belongs outside the v1 store core"
             }
             Self::DistributedBehavior => {
-                "non-goal: distributed behavior belongs outside the v1 engine core"
+                "non-goal: distributed behavior belongs outside the v1 store core"
             }
             Self::CrossDocumentTransactions => {
-                "non-goal: cross-document transactions belong outside the v1 engine core"
+                "non-goal: cross-document transactions belong outside the v1 store core"
             }
-            Self::ArbitraryJoins => "non-goal: arbitrary joins belong outside the v1 engine core",
-            Self::QueryPlanner => "non-goal: query planner work belongs outside the v1 engine core",
+            Self::ArbitraryJoins => "non-goal: arbitrary joins belong outside the v1 store core",
+            Self::QueryPlanner => "non-goal: query planner work belongs outside the v1 store core",
             Self::VectorOrTextSearch => {
-                "non-goal: vector or text search belongs outside the v1 engine core"
+                "non-goal: vector or text search belongs outside the v1 store core"
             }
-            Self::FullMvcc => "non-goal: full MVCC belongs outside the v1 engine core",
-            Self::FullAcid => "non-goal: full ACID support is not claimed by the v1 engine core",
+            Self::FullMvcc => "non-goal: full MVCC belongs outside the v1 store core",
+            Self::FullAcid => "non-goal: full ACID support is not claimed by the v1 store core",
             Self::HandwrittenAssembly => {
-                "non-goal: handwritten assembly belongs outside the v1 engine core"
+                "non-goal: handwritten assembly belongs outside the v1 store core"
             }
         }
     }

@@ -1,12 +1,12 @@
 [package]
-name = "mfs-db"
+name = "mfs-store"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Database engine primitives for memory-first-store."
+description = "Durable hot storage layer for memory-first-store."
 
 [lib]
-name = "mfs_db"
+name = "mfs_store"
 path = "src/lib.rs"
 
 [features]
@@ -32,33 +32,33 @@ tempfile = "3"
 
 [[example]]
 name = "cc_wet_bench"
-path = "../../examples/db/cc_wet_bench.rs"
+path = "../../examples/store/cc_wet_bench.rs"
 
 [[example]]
 name = "cc_wet_extract"
-path = "../../examples/db/cc_wet_extract.rs"
+path = "../../examples/store/cc_wet_extract.rs"
 
 [[example]]
 name = "nosql_raw_kv"
-path = "../../examples/db/nosql_raw_kv.rs"
+path = "../../examples/store/nosql_raw_kv.rs"
 
 [[example]]
 name = "nosql_schema_mode"
-path = "../../examples/db/nosql_schema_mode.rs"
+path = "../../examples/store/nosql_schema_mode.rs"
 
 [[example]]
 name = "nosql_wal_recovery"
-path = "../../examples/db/nosql_wal_recovery.rs"
+path = "../../examples/store/nosql_wal_recovery.rs"
 
 [[example]]
 name = "nosql_checkpoint_recovery"
-path = "../../examples/db/nosql_checkpoint_recovery.rs"
+path = "../../examples/store/nosql_checkpoint_recovery.rs"
 
 [[example]]
 name = "nosql_query"
-path = "../../examples/db/nosql_query.rs"
+path = "../../examples/store/nosql_query.rs"
 
 [[bench]]
-name = "mfs_nosql_engine"
-path = "../../benches/mfs/nosql_engine.rs"
+name = "mfs_store_bench"
+path = "../../benches/mfs/store_bench.rs"
 harness = false
