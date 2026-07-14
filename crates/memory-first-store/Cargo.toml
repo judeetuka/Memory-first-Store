@@ -12,11 +12,11 @@ path = "src/lib.rs"
 [features]
 default = []
 ahash = ["mfs-core/ahash"]
-json = ["mfs-db/json"]
+json = ["mfs-store/json"]
 experimental = ["mfs-core/experimental", "mfs-neural/experimental"]
 
 [dependencies]
 mfs-core = { path = "../mfs-core", default-features = false }
 mfs-neural = { path = "../mfs-neural" }
-mfs-db = { path = "../mfs-db" }
+mfs-store = { path = "../mfs-store" }
 mfs-compat = { path = "../mfs-compat" }

@@ -3,7 +3,7 @@ use crate::object_store::{
 };
 use mfs_core::durability::{WalBackend, WalCodec, WalConfig};
 use mfs_core::{FlushBackend, FlushRecord, Operation};
-use mfs_db::value::{MfsValue, MfsValueCodec};
+use mfs_store::value::{MfsValue, MfsValueCodec};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};

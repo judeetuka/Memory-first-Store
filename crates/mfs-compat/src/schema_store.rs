@@ -4,8 +4,8 @@ use crossbeam_utils::CachePadded;
 use hashbrown::HashMap;
 use mfs_core::writeback::{WriteBehindCache, WriteBehindConfig, WriteBehindStats};
 use mfs_core::{FastBuildHasher, FlushBackend};
-use mfs_db::schema::{Reference, Schema, SchemaError, SchemaFieldType};
-use mfs_db::schema_value::{SchemaValue, SchemaValueError, SchemaValueKind, validate_document};
+use mfs_store::schema::{Reference, Schema, SchemaError, SchemaFieldType};
+use mfs_store::schema_value::{SchemaValue, SchemaValueError, SchemaValueKind, validate_document};
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::fmt;
 use std::hash::{BuildHasher, Hash};
@@ -1124,8 +1124,8 @@ mod tests {
     use std::sync::Barrier;
     use std::thread;
 
-    fn primary_id() -> mfs_db::schema::SchemaField {
-        let mut field = mfs_db::schema::SchemaField::new("id", SchemaFieldType::String);
+    fn primary_id() -> mfs_store::schema::SchemaField {
+        let mut field = mfs_store::schema::SchemaField::new("id", SchemaFieldType::String);
         field.primary = true;
         field.indexed = true;
         field.unique = true;
@@ -1133,14 +1133,14 @@ mod tests {
     }
 
     fn user_schema() -> Schema {
-        let mut email = mfs_db::schema::SchemaField::new("email", SchemaFieldType::String);
+        let mut email = mfs_store::schema::SchemaField::new("email", SchemaFieldType::String);
         email.indexed = true;
         email.unique = true;
 
-        let age = mfs_db::schema::SchemaField {
+        let age = mfs_store::schema::SchemaField {
             optional: true,
             indexed: true,
-            ..mfs_db::schema::SchemaField::new("age", SchemaFieldType::Int32)
+            ..mfs_store::schema::SchemaField::new("age", SchemaFieldType::Int32)
         };
 
         Schema::new("users", vec![primary_id(), email, age])
@@ -1155,20 +1155,20 @@ mod tests {
     }
 
     fn company_schema() -> Schema {
-        let mut id = mfs_db::schema::SchemaField::new("id", SchemaFieldType::String);
+        let mut id = mfs_store::schema::SchemaField::new("id", SchemaFieldType::String);
         id.primary = true;
         id.indexed = true;
         id.unique = true;
-        let name = mfs_db::schema::SchemaField::new("name", SchemaFieldType::String);
+        let name = mfs_store::schema::SchemaField::new("name", SchemaFieldType::String);
         Schema::new("companies", vec![id, name])
     }
 
     fn user_company_schema() -> Schema {
-        let mut email = mfs_db::schema::SchemaField::new("email", SchemaFieldType::String);
+        let mut email = mfs_store::schema::SchemaField::new("email", SchemaFieldType::String);
         email.indexed = true;
         email.unique = true;
         let mut company_id =
-            mfs_db::schema::SchemaField::new("company_id", SchemaFieldType::String);
+            mfs_store::schema::SchemaField::new("company_id", SchemaFieldType::String);
         company_id.optional = true;
         company_id.reference = Some(Reference::new("companies", "id"));
         Schema::new("users", vec![primary_id(), email, company_id])
@@ -1513,7 +1513,7 @@ mod tests {
 
     #[test]
     fn float_index_lookup_works() {
-        let mut score = mfs_db::schema::SchemaField::new("score", SchemaFieldType::Float);
+        let mut score = mfs_store::schema::SchemaField::new("score", SchemaFieldType::Float);
         score.indexed = true;
         let schema = Schema::new("scores", vec![primary_id(), score]);
         let store = SchemaStore::new();

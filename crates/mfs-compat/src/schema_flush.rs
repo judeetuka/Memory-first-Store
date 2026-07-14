@@ -2,8 +2,8 @@
 
 use crate::schema_store::SchemaKey;
 use mfs_core::{FlushRecord, Operation};
-use mfs_db::schema::{Schema, SchemaField, SchemaFieldType};
-use mfs_db::schema_value::{
+use mfs_store::schema::{Schema, SchemaField, SchemaFieldType};
+use mfs_store::schema_value::{
     SchemaValue, SchemaValueError, encode_schema_value, validate_codec_safe,
 };
 use std::collections::HashMap;
@@ -442,7 +442,7 @@ mod tests {
         email.unique = true;
         let mut company_id = SchemaField::new("company_id", SchemaFieldType::String);
         company_id.indexed = true;
-        company_id.reference = Some(mfs_db::schema::Reference::new("companies", "id"));
+        company_id.reference = Some(mfs_store::schema::Reference::new("companies", "id"));
         let mut created_at = SchemaField::new("created_at", SchemaFieldType::Int64);
         created_at.indexed = true;
         created_at.sort = true;

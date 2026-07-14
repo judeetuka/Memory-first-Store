@@ -1,7 +1,7 @@
 //! Redis-like object-store façade.
 //!
 //! This module provides a developer-facing CRUD API over arbitrary
-//! [`mfs_db::value::MfsValue`] values. The first implementation is intentionally
+//! [`mfs_store::value::MfsValue`] values. The first implementation is intentionally
 //! conservative: it uses [`mfs_core::writeback::WriteBehindCache`] because the
 //! current `MfsValue` writer benchmark shows it is still the fastest baseline
 //! for arbitrary heap-backed values. Slot and atomic writers remain candidate
@@ -13,7 +13,7 @@ use mfs_core::writeback::{
     WriteBehindConfig, WriteBehindError, WriteBehindStats,
 };
 use mfs_core::{FastBuildHasher, FlushBackend, FlushRecord, Operation};
-use mfs_db::value::{MfsValue, SortedSetEntry, ValueTag};
+use mfs_store::value::{MfsValue, SortedSetEntry, ValueTag};
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque, hash_map::Entry};
 use std::hash::BuildHasher;
 use std::sync::{
@@ -2841,7 +2841,7 @@ mod tests {
     use super::*;
     use mfs_core::durability::{WalBackend, WalConfig};
     use mfs_core::{FlushRecord, Operation};
-    use mfs_db::value::MfsValueCodec;
+    use mfs_store::value::MfsValueCodec;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::{

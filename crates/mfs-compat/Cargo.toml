@@ -11,7 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 mfs-core = { path = "../mfs-core", default-features = false }
-mfs-db = { path = "../mfs-db" }
+mfs-store = { path = "../mfs-store" }
 parking_lot.workspace = true
 hashbrown.workspace = true
 crossbeam-utils.workspace = true

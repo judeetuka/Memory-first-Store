@@ -10,7 +10,7 @@ pub use mfs_core::{
 };
 #[cfg(feature = "experimental")]
 pub use mfs_core::{atomic_writeback, slot_writeback};
-pub use mfs_db::{engine, schema, schema_value, value};
+pub use mfs_store::{store, schema, schema_value, value};
 pub use mfs_neural::{
     bucketed_index, dense_kv, dense_writeback_map, inline_handle_index,
     queued_dense_writeback,
@@ -36,20 +36,20 @@ pub use mfs_compat::schema_store::{
     SchemaStore, SchemaStoreError, extract_primary_key,
 };
 
-pub use mfs_db::{
+pub use mfs_store::{
     CheckpointCorruptionKind, CollectionId, CollectionName, DEFAULT_MAX_COLLECTIONS,
-    DEFAULT_RAW_INITIAL_CAPACITY, DocumentVersion, DurabilityMode, EngineConfig, EngineError,
-    EngineMode, EngineNonGoal, EngineResult, EngineScope, EngineSemantics, IndexConsistency, Lsn,
+    DEFAULT_RAW_INITIAL_CAPACITY, DocumentVersion, DurabilityMode, IndexConsistency, Lsn,
     MAX_BLOB_BYTES, MAX_COLLECTION_ITEMS, MAX_ENCODED_VALUE_BYTES, MAX_SCHEMA_BLOB_BYTES,
-    MAX_SCHEMA_COLLECTION_ITEMS, MAX_SCHEMA_VALUE_BYTES, MAX_SCHEMA_VALUE_DEPTH, MfsValue,
-    MfsValueCodec, NoSqlEngine, RAW_CHECKPOINT_FORMAT_VERSION, RAW_WAL_FORMAT_VERSION,
+    MAX_SCHEMA_COLLECTION_ITEMS, MAX_SCHEMA_VALUE_BYTES, MAX_SCHEMA_VALUE_DEPTH, MfsStore,
+    MfsStoreConfig, MfsValue, MfsValueCodec, RAW_CHECKPOINT_FORMAT_VERSION, RAW_WAL_FORMAT_VERSION,
     RawCheckpointCollectionMetadata, RawCheckpointLoad, RawCheckpointMetadata, RawCheckpointSource,
     RawKey, RawRecovery, RawValue, RawWalRecord, RawWalReplayStats, RawWalSegmentReader,
     RawWalSegmentWriter, ReadConsistency, ReadOptions, ReadResult, RecoveryPrecedence, Reference,
     ReferenceLimit, Schema, SchemaError, SchemaField, SchemaFieldType,
     SchemaForwardReferenceInclude, SchemaLookupResult, SchemaReadResult,
     SchemaReverseReferenceInclude, SchemaValue, SchemaValueCodec, SchemaValueError,
-    SchemaValueKind, SchemaValueTag, SortedSetEntry, StreamEntry, StreamId, V1_ENGINE_SEMANTICS,
+    SchemaValueKind, SchemaValueTag, SortedSetEntry, StoreError, StoreMode, StoreNonGoal,
+    StoreResult, StoreScope, StoreSemantics, StreamEntry, StreamId, V1_STORE_SEMANTICS,
     ValueTag, WalCorruptionKind, WriteAcknowledgement, WriteAtomicity, WriteConflictPolicy,
     WriteOptions, WriteResult, decode_schema_value, decode_value, encode_schema_value,
     encode_value, load_latest_raw_checkpoint, raw_checkpoint_path, read_raw_checkpoint_metadata,
@@ -77,7 +77,7 @@ pub use mfs_neural::queued_dense_writeback::{
 fn facade_imports_compile() {
     use crate::dense_kv::DenseKvMap;
     use crate::durability::{U64Codec, WalConfig};
-    use crate::engine::{EngineConfig, NoSqlEngine, RawKey, RawValue};
+    use crate::store::{MfsStore, MfsStoreConfig, RawKey, RawValue};
     use crate::object_store::MfsObjectStore;
     use crate::page_store::{InMemoryPageStore, MfsPageStore};
     use crate::page_vfs::MfsPageVfs;
@@ -118,9 +118,9 @@ fn facade_imports_compile() {
     dense.put(3, 5).expect("put through neural facade module");
     assert_eq!(dense.get(&3), Some(5));
 
-    let engine = NoSqlEngine::open_memory(EngineConfig {
+    let engine = MfsStore::open_memory(MfsStoreConfig {
         raw_initial_capacity: 8,
-        ..EngineConfig::default()
+        ..MfsStoreConfig::default()
     })
     .expect("open memory engine through facade");
     engine
