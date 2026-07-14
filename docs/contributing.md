@@ -7,12 +7,19 @@ for day-to-day development.
 
 - Rust toolchain (stable). The project targets Linux x86_64 and aarch64.
 - `cargo` (ships with rustup).
+- `make` (optional, wraps common workflows).
 
 ## Building
 
 ```bash
 cargo build --workspace --all-features
 ```
+Or via Make:
+
+```bash
+make build
+```
+
 This compiles all workspace crates (`mfs-core`, `mfs-neural`, `mfs-db`,
 `mfs-compat`) with every feature flag enabled.
 
@@ -20,6 +27,11 @@ This compiles all workspace crates (`mfs-core`, `mfs-neural`, `mfs-db`,
 
 ```bash
 cargo test --workspace --all-features
+```
+Or via Make:
+
+```bash
+make test
 ```
 
 For release-mode tests (closer to benchmark conditions):
@@ -45,6 +57,11 @@ cargo fmt --all -- --check
 ```bash
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
+Or via Make:
+
+```bash
+make clippy
+```
 
 All clippy warnings are treated as errors. Fix them before submitting.
 
@@ -56,6 +73,12 @@ The full CI pipeline runs format check, clippy, and tests in sequence:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
+```
+
+Or using the Makefile:
+
+```bash
+make ci
 ```
 
 ## Benchmarking

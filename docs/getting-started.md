@@ -209,11 +209,11 @@ DRAM-bound random access on bigger working sets.
 ## Building
 
 ```bash
-cargo build --workspace --all-features       # compile all crates
-cargo test --workspace --all-features        # run all tests
-cargo fmt --all                              # format code
-cargo clippy --workspace --all-targets --all-features -- -D warnings  # lint
-cargo doc --workspace --no-deps              # build documentation
+make build              # compile all crates
+make test               # run all tests
+make fmt                # format code
+make lint               # clippy lint
+make doc                # build documentation
 ```
 
 Benchmark harnesses are available in the development repository (not included
