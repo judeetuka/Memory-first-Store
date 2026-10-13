@@ -34,6 +34,19 @@ pub struct RawWalReplayStats {
     pub last_lsn: Lsn,
 }
 
+/// Result of compacting a raw WAL segment.
+///
+/// Compaction rewrites the segment keeping only the newest record per
+/// `(collection, key)` pair, preserving the original LSN and document version
+/// of every retained record. Replaying the compacted segment yields exactly the
+/// same final store state as replaying the original.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RawWalCompactionStats {
+    pub records_before: usize,
+    pub records_after: usize,
+    pub last_lsn: Lsn,
+}
+
 pub struct RawWalSegmentWriter {
     path: PathBuf,
     writer: BufWriter<File>,
@@ -140,6 +153,49 @@ impl RawWalSegmentWriter {
         let lsn = Lsn::new(self.next_lsn);
         self.next_lsn = self.next_lsn.saturating_add(1);
 
+        self.emit_encoded(lsn, version, collection, op, key, value)?;
+
+        if track_version {
+            self.record_versions
+                .insert((collection.to_string(), key.clone()), version);
+        }
+
+        Ok(lsn)
+    }
+
+    /// Append a record preserving its original LSN and document version.
+    ///
+    /// Used by [`compact_raw_wal`] when rewriting a segment. LSNs in the source
+    /// segment are strictly increasing, so a subsequence retained in the same
+    /// order stays strictly increasing and replay remains valid. `next_lsn` is
+    /// advanced past the retained record so subsequent live appends never reuse
+    /// an LSN.
+    pub(crate) fn append_record_exact(&mut self, record: &RawWalRecord) -> StoreResult<()> {
+        self.next_lsn = self.next_lsn.max(record.lsn.get().saturating_add(1));
+        self.emit_encoded(
+            record.lsn,
+            record.version,
+            &record.collection,
+            record.op,
+            &record.key,
+            record.value.as_ref(),
+        )?;
+        self.record_versions.insert(
+            (record.collection.clone(), record.key.clone()),
+            record.version,
+        );
+        Ok(())
+    }
+
+    fn emit_encoded(
+        &mut self,
+        lsn: Lsn,
+        version: DocumentVersion,
+        collection: &str,
+        op: Operation,
+        key: &RawKey,
+        value: Option<&RawValue>,
+    ) -> StoreResult<()> {
         encode_payload(&mut self.scratch, lsn, version, collection, op, key, value)?;
         let payload_len =
             u32::try_from(self.scratch.len()).map_err(|_| StoreError::WalCorruption {
@@ -164,12 +220,7 @@ impl RawWalSegmentWriter {
             .write_all(&crc.to_le_bytes())
             .map_err(|e| wal_io("write raw WAL checksum", e))?;
 
-        if track_version {
-            self.record_versions
-                .insert((collection.to_string(), key.clone()), version);
-        }
-
-        Ok(lsn)
+        Ok(())
     }
 
     fn next_record_version(&self, collection: &str, key: &RawKey) -> DocumentVersion {
@@ -247,6 +298,70 @@ pub fn replay_raw_wal_after(
     after_lsn: Lsn,
 ) -> StoreResult<RawWalReplayStats> {
     RawWalSegmentReader::replay_after(path, engine, after_lsn)
+}
+
+/// Compact a raw WAL segment in place, keeping only the newest record per
+/// `(collection, key)` pair.
+///
+/// The rewrite is atomic: records are written to a sibling temporary segment,
+/// fsynced, then renamed over the original, and the parent directory is fsynced
+/// so the rename survives a crash. Original LSNs and document versions are
+/// preserved, so the compacted segment replays to the same final state and live
+/// appends can continue where the segment left off.
+///
+/// Callers that own a live [`RawWalSegmentWriter`] for `path` must close it
+/// first (or use [`MfsStore::compact_wal`], which does this safely).
+pub fn compact_raw_wal(path: impl AsRef<Path>) -> StoreResult<RawWalCompactionStats> {
+    let path = path.as_ref();
+    if !path.exists() {
+        return Ok(RawWalCompactionStats {
+            records_before: 0,
+            records_after: 0,
+            last_lsn: Lsn::ZERO,
+        });
+    }
+
+    let records = RawWalSegmentReader::read_records(path)?;
+    let records_before = records.len();
+
+    // Keep the index of the newest record for each (collection, key). Sorting
+    // the retained indices restores the original append order, which is also
+    // strictly increasing LSN order.
+    let mut newest: HashMap<(String, RawKey), usize> = HashMap::with_capacity(records.len());
+    for (index, record) in records.iter().enumerate() {
+        newest.insert((record.collection.clone(), record.key.clone()), index);
+    }
+    let mut retained: Vec<usize> = newest.into_values().collect();
+    retained.sort_unstable();
+
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".compact.tmp");
+    let tmp = PathBuf::from(tmp);
+    std::fs::remove_file(&tmp).ok();
+
+    {
+        let mut writer = RawWalSegmentWriter::open(&tmp)?;
+        for index in &retained {
+            writer.append_record_exact(&records[*index])?;
+        }
+        writer.sync_now()?;
+    }
+
+    std::fs::rename(&tmp, path).map_err(|e| wal_io("rename compacted raw WAL segment", e))?;
+    if let Some(dir) = path.parent().and_then(|parent| File::open(parent).ok()) {
+        dir.sync_all()
+            .map_err(|e| wal_io("sync raw WAL parent directory", e))?;
+    }
+
+    let last_lsn = retained
+        .last()
+        .map(|index| records[*index].lsn)
+        .unwrap_or(Lsn::ZERO);
+    Ok(RawWalCompactionStats {
+        records_before,
+        records_after: retained.len(),
+        last_lsn,
+    })
 }
 
 struct RawWalAppendState {
@@ -590,5 +705,132 @@ fn wal_io(operation: &'static str, error: io::Error) -> StoreError {
     StoreError::WalIo {
         operation,
         message: error.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{DurabilityMode, MfsStoreConfig, WriteOptions};
+
+    fn wal_store(path: &Path) -> MfsStore {
+        MfsStore::open_memory(
+            MfsStoreConfig::default()
+                .with_durability(DurabilityMode::WalAsync)
+                .with_wal_path(path),
+        )
+        .expect("open WAL-mode store")
+    }
+
+    fn put(store: &MfsStore, collection: &str, key: &[u8], value: &[u8]) {
+        store
+            .put_raw(
+                collection,
+                RawKey::from(key),
+                RawValue::from(value),
+                WriteOptions::default(),
+            )
+            .expect("put_raw");
+    }
+
+    fn get(store: &MfsStore, collection: &str, key: &[u8]) -> Option<Vec<u8>> {
+        store
+            .get_raw(collection, &RawKey::from(key), ReadOptions::default())
+            .expect("get_raw")
+            .map(|result| result.value.into_bytes())
+    }
+
+    #[test]
+    fn sync_wal_makes_buffered_writes_recoverable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let wal_path = dir.path().join("mfs.wal");
+
+        {
+            let store = wal_store(&wal_path);
+            store.create_raw_collection("items").expect("collection");
+            put(&store, "items", b"alpha", b"one");
+            assert!(store.wal_dirty(), "append must mark the WAL dirty");
+            store.sync_wal().expect("sync_wal");
+            assert!(!store.wal_dirty(), "sync must clear the dirty flag");
+        }
+
+        let recovered = wal_store(&wal_path);
+        let stats = replay_raw_wal(&wal_path, &recovered).expect("replay");
+        assert_eq!(stats.records, 1);
+        assert_eq!(
+            get(&recovered, "items", b"alpha").as_deref(),
+            Some(&b"one"[..])
+        );
+    }
+
+    #[test]
+    fn sync_wal_is_noop_when_clean() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let wal_path = dir.path().join("mfs.wal");
+        let store = wal_store(&wal_path);
+        store.create_raw_collection("items").expect("collection");
+
+        assert!(!store.wal_dirty());
+        store.sync_wal().expect("sync_wal");
+        assert!(
+            !wal_path.exists(),
+            "syncing a clean store must not create a WAL file"
+        );
+    }
+
+    #[test]
+    fn compact_wal_keeps_newest_and_replays_equivalently() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let wal_path = dir.path().join("mfs.wal");
+
+        {
+            let store = wal_store(&wal_path);
+            store.create_raw_collection("items").expect("collection");
+            put(&store, "items", b"alpha", b"v1");
+            put(&store, "items", b"alpha", b"v2");
+            put(&store, "items", b"alpha", b"v3");
+            put(&store, "items", b"beta", b"only");
+            put(&store, "items", b"gamma", b"temp");
+            store
+                .delete_raw("items", RawKey::from(&b"gamma"[..]), WriteOptions::default())
+                .expect("delete_raw");
+            store.sync_wal().expect("sync_wal");
+
+            let stats = store.compact_wal().expect("compact").expect("stats");
+            assert_eq!(stats.records_before, 6);
+            assert_eq!(stats.records_after, 3, "one record per distinct key");
+            assert!(!store.wal_dirty());
+
+            // Live appends must continue on the rewritten segment.
+            put(&store, "items", b"delta", b"new");
+            store.sync_wal().expect("sync_wal");
+        }
+
+        let recovered = wal_store(&wal_path);
+        let stats = replay_raw_wal(&wal_path, &recovered).expect("replay");
+        assert_eq!(stats.records, 4);
+        assert_eq!(
+            get(&recovered, "items", b"alpha").as_deref(),
+            Some(&b"v3"[..])
+        );
+        assert_eq!(
+            get(&recovered, "items", b"beta").as_deref(),
+            Some(&b"only"[..])
+        );
+        assert_eq!(
+            get(&recovered, "items", b"gamma"),
+            None,
+            "delete tombstone must survive compaction"
+        );
+        assert_eq!(
+            get(&recovered, "items", b"delta").as_deref(),
+            Some(&b"new"[..])
+        );
+    }
+
+    #[test]
+    fn compact_wal_is_noop_without_wal_path() {
+        let store = MfsStore::open_memory(MfsStoreConfig::default()).expect("memory store");
+        assert!(store.compact_wal().expect("compact").is_none());
     }
 }

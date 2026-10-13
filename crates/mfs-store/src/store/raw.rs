@@ -3,8 +3,8 @@ use crate::store::index::{
 };
 use crate::store::{
     CollectionId, CollectionName, DocumentVersion, DurabilityMode, MfsStoreConfig, StoreError,
-    StoreResult, RawKey, RawValue, RawWalSegmentWriter, ReadOptions, ReadResult,
-    WriteAcknowledgement, WriteOptions, WriteResult,
+    StoreResult, RawKey, RawValue, RawWalCompactionStats, RawWalSegmentWriter, ReadOptions,
+    ReadResult, WriteAcknowledgement, WriteOptions, WriteResult, compact_raw_wal,
 };
 use crossbeam_utils::CachePadded;
 use mfs_core::FastBuildHasher;
@@ -15,7 +15,7 @@ use std::fmt;
 use std::hash::BuildHasher;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 const DEFAULT_RAW_MUTATION_LOCKS: usize = 1024;
 
@@ -35,6 +35,10 @@ pub(crate) struct StoreInner {
 struct StoreDurability {
     wal_path: Option<PathBuf>,
     wal: Mutex<Option<RawWalSegmentWriter>>,
+    /// Set whenever a record is appended to the WAL buffer and cleared once the
+    /// buffer has been flushed and fsynced. Lets background syncers cheaply skip
+    /// `fsync` ticks when nothing has been written.
+    wal_dirty: AtomicBool,
 }
 
 struct RawCollection {
@@ -107,6 +111,35 @@ impl MfsStore {
 
     pub fn config(&self) -> &MfsStoreConfig {
         &self.inner.config
+    }
+
+    /// Path of the configured WAL segment, if any.
+    pub fn wal_path(&self) -> Option<&std::path::Path> {
+        self.inner.durability.wal_path.as_deref()
+    }
+
+    /// Whether the WAL currently holds buffered records that have not been
+    /// flushed and fsynced. Cheap to poll from a background syncer.
+    pub fn wal_dirty(&self) -> bool {
+        self.inner.durability.is_wal_dirty()
+    }
+
+    /// Flush and fsync buffered WAL records.
+    ///
+    /// No-op when nothing has been written since the last sync. Intended to be
+    /// called on a timer or after a batch so that [`DurabilityMode::WalAsync`]
+    /// gets a bounded crash window without paying an `fsync` per write.
+    pub fn sync_wal(&self) -> StoreResult<()> {
+        self.inner.durability.sync_wal()
+    }
+
+    /// Fsync the WAL and compact it in place to the newest record per key.
+    ///
+    /// Bounds WAL growth: superseded versions of a key are dropped while LSNs
+    /// and document versions of retained records are preserved, so replay still
+    /// produces the same store state. Returns `None` when no WAL is configured.
+    pub fn compact_wal(&self) -> StoreResult<Option<RawWalCompactionStats>> {
+        self.inner.durability.compact_wal()
     }
 
     pub fn create_raw_collection(
@@ -385,6 +418,7 @@ impl StoreDurability {
         Self {
             wal_path: config.wal_path.clone(),
             wal: Mutex::new(None),
+            wal_dirty: AtomicBool::new(false),
         }
     }
 
@@ -437,9 +471,75 @@ impl StoreDurability {
             None => writer.append_delete_versioned(collection, key, version),
         }?;
         if sync {
+            // Sync modes flush the whole buffer here, including any earlier
+            // records appended under `WalAsync`.
             writer.sync_now()?;
+            self.wal_dirty.store(false, Ordering::Release);
+        } else {
+            self.wal_dirty.store(true, Ordering::Release);
         }
         Ok(lsn)
+    }
+
+    /// Whether the WAL has buffered records that have not been fsynced.
+    fn is_wal_dirty(&self) -> bool {
+        self.wal_dirty.load(Ordering::Acquire)
+    }
+
+    /// Flush and fsync buffered WAL records.
+    ///
+    /// Cheap no-op when nothing has been written since the last sync. WAL
+    /// durability modes other than `WalAsync` (and `MemoryOnly`/`SnapshotOnly`)
+    /// have no buffered writer to flush and are also no-ops.
+    fn sync_wal(&self) -> StoreResult<()> {
+        if !self.is_wal_dirty() {
+            return Ok(());
+        }
+        let mut wal = self.wal.lock();
+        if wal.is_none() {
+            let Some(path) = self.wal_path.as_ref() else {
+                return Ok(());
+            };
+            // Only reopen an existing segment; never create an empty WAL just
+            // to fsync it.
+            if !path.exists() {
+                return Ok(());
+            }
+            *wal = Some(RawWalSegmentWriter::open(path)?);
+        }
+        if let Some(writer) = wal.as_mut() {
+            writer.sync_now()?;
+        }
+        self.wal_dirty.store(false, Ordering::Release);
+        Ok(())
+    }
+
+    /// Fsync the WAL and rewrite it keeping only the newest record per key.
+    ///
+    /// Returns `None` when no WAL path is configured. The writer is closed for
+    /// the duration of the rewrite (the mutex prevents concurrent appends from
+    /// touching the old inode) and reopened afterwards.
+    fn compact_wal(&self) -> StoreResult<Option<RawWalCompactionStats>> {
+        let Some(path) = self.wal_path.clone() else {
+            return Ok(None);
+        };
+
+        let mut guard = self.wal.lock();
+        if let Some(writer) = guard.as_mut() {
+            writer.sync_now()?;
+        }
+        // Close the writer before replacing the file it points at. Holding the
+        // mutex keeps concurrent appends blocked until the new writer is open.
+        *guard = None;
+        self.wal_dirty.store(false, Ordering::Release);
+
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let stats = compact_raw_wal(&path)?;
+        *guard = Some(RawWalSegmentWriter::open(&path)?);
+        Ok(Some(stats))
     }
 }
 

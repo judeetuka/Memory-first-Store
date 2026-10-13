@@ -33,6 +33,7 @@ pub use types::{
     RawValue, ReadOptions, ReadResult, WriteAcknowledgement, WriteOptions, WriteResult,
 };
 pub use wal::{
-    RAW_WAL_FORMAT_VERSION, RawWalRecord, RawWalReplayStats, RawWalSegmentReader,
-    RawWalSegmentWriter, replay_raw_wal, replay_raw_wal_after,
+    RAW_WAL_FORMAT_VERSION, RawWalCompactionStats, RawWalRecord, RawWalReplayStats,
+    RawWalSegmentReader, RawWalSegmentWriter, compact_raw_wal, replay_raw_wal,
+    replay_raw_wal_after,
 };
