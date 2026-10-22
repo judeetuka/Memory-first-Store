@@ -32,7 +32,7 @@ use mfs_store::schema_value::SchemaValue;
 use mfs_store::{DurabilityMode, MfsStore, MfsStoreConfig, WriteOptions};
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const WARMUP: usize = 5_000;
 const MEASURED: usize = 20_000;
@@ -90,10 +90,7 @@ fn store(wal: &std::path::Path) -> MfsStore {
 /// Fastest median of the per-write samples: the standard way to look past
 /// scheduler noise when the effect is smaller than the drift.
 fn fastest_median(samples: &[f64]) -> f64 {
-    samples
-        .iter()
-        .copied()
-        .fold(f64::INFINITY, f64::min)
+    samples.iter().copied().fold(f64::INFINITY, f64::min)
 }
 
 /// What the writer does with a worker, when the worker's backend is a no-op.
@@ -263,12 +260,7 @@ fn round(schema: &Schema) -> Round {
     }
 }
 
-fn record(
-    schema: &Schema,
-    index: i64,
-    document: SchemaValue,
-    lsn: u64,
-) -> SchemaFlushRecord {
+fn record(schema: &Schema, index: i64, document: SchemaValue, lsn: u64) -> SchemaFlushRecord {
     SchemaFlushRecord::from_schema_write(
         "users",
         schema,

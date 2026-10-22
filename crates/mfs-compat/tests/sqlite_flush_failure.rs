@@ -34,7 +34,11 @@ fn failed_batch_is_requeued_and_nothing_is_lost() {
 
     let mut records = Vec::new();
     for index in 0..5 {
-        let document = user_document(&format!("u{index}"), &format!("u{index}@example.com"), index);
+        let document = user_document(
+            &format!("u{index}"),
+            &format!("u{index}@example.com"),
+            index,
+        );
         let record = SchemaFlushRecord::from_schema_write(
             "users",
             &schema,
@@ -114,7 +118,9 @@ fn aborted_batch_leaves_the_copy_consistent() {
     );
 
     // The copy is still usable: the good record flushes on its own.
-    backend.flush_records(&[good.clone()]).expect("flush");
+    backend
+        .flush_records(std::slice::from_ref(&good))
+        .expect("flush");
     assert!(
         backend
             .flushed_row("users", &good.key)
@@ -149,8 +155,12 @@ fn stale_write_does_not_move_the_copy_backwards() {
     )
     .expect("flush record");
 
-    backend.flush_records(&[fresh.clone()]).expect("flush fresh");
-    backend.flush_records(&[stale.clone()]).expect("flush stale");
+    backend
+        .flush_records(std::slice::from_ref(&fresh))
+        .expect("flush fresh");
+    backend
+        .flush_records(std::slice::from_ref(&stale))
+        .expect("flush stale");
 
     let row = backend
         .flushed_row("users", &fresh.key)
@@ -173,7 +183,9 @@ fn hot_write_survives_a_flushing_failure() {
     let scratch = Scratch::new("survive");
     let schema = user_schema();
     let store = common::hot_store(&scratch);
-    store.create_schema_collection(&schema).expect("create collection");
+    store
+        .create_schema_collection(&schema)
+        .expect("create collection");
 
     let mut inner = SqliteFlushBackend::open(&scratch.join("query.db")).expect("open copy");
     inner.ensure_schema(&schema).expect("ensure schema");

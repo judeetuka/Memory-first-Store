@@ -90,14 +90,8 @@ pub fn write_and_record(
         .put_schema(schema, document.clone(), WriteOptions::default())
         .expect("put schema document");
     let lsn = result.lsn.expect("wal lsn").get();
-    SchemaFlushRecord::from_schema_write(
-        schema.name.clone(),
-        schema,
-        &primary,
-        Some(document),
-        lsn,
-    )
-    .expect("flush record")
+    SchemaFlushRecord::from_schema_write(schema.name.clone(), schema, &primary, Some(document), lsn)
+        .expect("flush record")
 }
 
 /// Backend that fails the first `failures` batches and then delegates.

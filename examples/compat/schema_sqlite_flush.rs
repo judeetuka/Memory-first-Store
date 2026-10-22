@@ -119,7 +119,8 @@ fn scratch_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock after epoch")
         .as_nanos();
-    let path = std::env::temp_dir().join(format!("mfs-flush-example-{}-{nanos}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("mfs-flush-example-{}-{nanos}", std::process::id()));
     std::fs::create_dir_all(&path).expect("create scratch directory");
     path
 }
@@ -167,7 +168,9 @@ fn run_demo() -> Result<(), ExampleError> {
     store.create_schema_collection(&users)?;
 
     // The copy. One connection, one writer, WAL + synchronous NORMAL.
-    let backend = Arc::new(Mutex::new(SqliteFlushBackend::open(&scratch.join("query.db"))?));
+    let backend = Arc::new(Mutex::new(SqliteFlushBackend::open(
+        &scratch.join("query.db"),
+    )?));
     {
         let mut guard = backend.lock();
         guard.ensure_schema(&companies)?;
@@ -184,14 +187,21 @@ fn run_demo() -> Result<(), ExampleError> {
         },
     )?;
 
-    let company_key =
-        write_and_enqueue(&store, &companies, company("c1", "Acme"), &worker)?;
-    let user_key =
-        write_and_enqueue(&store, &users, user("u1", "ada@example.com", "c1", 10), &worker)?;
+    let company_key = write_and_enqueue(&store, &companies, company("c1", "Acme"), &worker)?;
+    let user_key = write_and_enqueue(
+        &store,
+        &users,
+        user("u1", "ada@example.com", "c1", 10),
+        &worker,
+    )?;
 
     // The hot reads are answered from memory and never touch SQLite.
     let from_hot = store
-        .get_schema(&users, &SchemaValue::String("u1".to_string()), ReadOptions::default())?
+        .get_schema(
+            &users,
+            &SchemaValue::String("u1".to_string()),
+            ReadOptions::default(),
+        )?
         .expect("user in hot layer")
         .document;
     assert_eq!(

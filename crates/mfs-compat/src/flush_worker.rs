@@ -63,7 +63,9 @@ impl Default for FlushConfig {
 enum FlushJob {
     Record(SchemaFlushRecord),
     /// Asks the worker to answer once everything queued before it committed.
-    Barrier { ack: Sender<()> },
+    Barrier {
+        ack: Sender<()>,
+    },
 }
 
 /// Why a flush worker operation failed.
@@ -87,7 +89,9 @@ impl fmt::Display for FlushWorkerError {
             Self::BarrierTimeout { timeout } => {
                 write!(f, "flush barrier timed out after {timeout:?}")
             }
-            Self::ThreadSpawn { error } => write!(f, "flush worker thread failed to start: {error}"),
+            Self::ThreadSpawn { error } => {
+                write!(f, "flush worker thread failed to start: {error}")
+            }
         }
     }
 }
@@ -209,10 +213,10 @@ where
         // Dropping the sender closes the queue. The worker flushes what is
         // left, then exits.
         self.sender.lock().take();
-        if let Some(handle) = self.handle.lock().take() {
-            if handle.join().is_err() {
-                eprintln!("[mfs-flush] worker thread panicked");
-            }
+        if let Some(handle) = self.handle.lock().take()
+            && handle.join().is_err()
+        {
+            eprintln!("[mfs-flush] worker thread panicked");
         }
     }
 }

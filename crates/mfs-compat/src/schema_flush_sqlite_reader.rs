@@ -21,11 +21,11 @@ impl SqliteFlushBackend {
     /// contiguous prefix: it says how far the copy has seen, not that every
     /// LSN below it is present.
     pub fn lsn_watermark(&self) -> Result<u64, SqliteFlushError> {
-        let value: i64 = self
-            .conn
-            .query_row(crate::schema_flush_sqlite::SELECT_WATERMARK, [], |row| {
-                row.get(0)
-            })?;
+        let value: i64 =
+            self.conn
+                .query_row(crate::schema_flush_sqlite::SELECT_WATERMARK, [], |row| {
+                    row.get(0)
+                })?;
         Ok(u64::try_from(value).unwrap_or(0))
     }
 
@@ -101,9 +101,7 @@ impl SqliteFlushBackend {
         collection: &str,
         key: &[u8],
     ) -> Result<Option<SchemaValue>, SqliteFlushError> {
-        Ok(self
-            .flushed_row(collection, key)?
-            .map(|row| row.document))
+        Ok(self.flushed_row(collection, key)?.map(|row| row.document))
     }
 }
 

@@ -8,7 +8,7 @@ use mfs_compat::schema_flush::{
     delete_values, sql_columns, upsert_sql, upsert_values,
 };
 use mfs_core::Operation;
-use mfs_store::schema::{Reference, Schema, SchemaField, SchemaFieldType};
+use mfs_store::schema::{Schema, SchemaField, SchemaFieldType};
 use mfs_store::schema_value::SchemaValue;
 
 fn user_schema() -> Schema {

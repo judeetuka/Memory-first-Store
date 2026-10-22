@@ -6,8 +6,8 @@ use common::{Scratch, hot_store, user_document, user_schema, write_and_record};
 use mfs_compat::flush_worker::{FlushConfig, FlushWorker};
 use mfs_compat::schema_flush::SchemaFlushRecord;
 use mfs_compat::schema_flush_sqlite::SqliteFlushBackend;
-use mfs_store::schema_value::SchemaValue;
 use mfs_store::WriteOptions;
+use mfs_store::schema_value::SchemaValue;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,7 +26,9 @@ fn hot_write_is_visible_in_the_sqlite_copy() {
     let scratch = Scratch::new("visible");
     let schema = user_schema();
     let store = hot_store(&scratch);
-    store.create_schema_collection(&schema).expect("create collection");
+    store
+        .create_schema_collection(&schema)
+        .expect("create collection");
 
     let backend = Arc::new(Mutex::new(
         SqliteFlushBackend::open(&scratch.join("query.db")).expect("open copy"),
@@ -64,7 +66,9 @@ fn generic_path_round_trips_the_document() {
     let scratch = Scratch::new("document");
     let schema = user_schema();
     let store = hot_store(&scratch);
-    store.create_schema_collection(&schema).expect("create collection");
+    store
+        .create_schema_collection(&schema)
+        .expect("create collection");
 
     let backend = Arc::new(Mutex::new(
         SqliteFlushBackend::open(&scratch.join("query.db")).expect("open copy"),
@@ -88,7 +92,10 @@ fn generic_path_round_trips_the_document() {
         .expect("read copy")
         .expect("document in copy");
     assert_eq!(stored, document);
-    assert_eq!(stored.field("email"), Some(&SchemaValue::String("ada@example.com".into())));
+    assert_eq!(
+        stored.field("email"),
+        Some(&SchemaValue::String("ada@example.com".into()))
+    );
 }
 
 #[test]
@@ -96,7 +103,9 @@ fn barrier_drains_everything_queued_before_it() {
     let scratch = Scratch::new("barrier");
     let schema = user_schema();
     let store = hot_store(&scratch);
-    store.create_schema_collection(&schema).expect("create collection");
+    store
+        .create_schema_collection(&schema)
+        .expect("create collection");
 
     let backend = Arc::new(Mutex::new(
         SqliteFlushBackend::open(&scratch.join("query.db")).expect("open copy"),
@@ -110,7 +119,11 @@ fn barrier_drains_everything_queued_before_it() {
 
     let mut records = Vec::new();
     for index in 0..25 {
-        let document = user_document(&format!("u{index}"), &format!("u{index}@example.com"), index);
+        let document = user_document(
+            &format!("u{index}"),
+            &format!("u{index}@example.com"),
+            index,
+        );
         let record = write_and_record(&store, &schema, document);
         worker.enqueue(record.clone()).expect("enqueue");
         records.push(record);
@@ -136,7 +149,9 @@ fn lsn_watermark_advances_with_the_copy() {
     let scratch = Scratch::new("watermark");
     let schema = user_schema();
     let store = hot_store(&scratch);
-    store.create_schema_collection(&schema).expect("create collection");
+    store
+        .create_schema_collection(&schema)
+        .expect("create collection");
 
     let backend = Arc::new(Mutex::new(
         SqliteFlushBackend::open(&scratch.join("query.db")).expect("open copy"),
@@ -157,7 +172,11 @@ fn lsn_watermark_advances_with_the_copy() {
     worker.enqueue(first.clone()).expect("enqueue");
     worker.barrier().expect("barrier");
 
-    let second = write_and_record(&store, &schema, user_document("u2", "grace@example.com", 11));
+    let second = write_and_record(
+        &store,
+        &schema,
+        user_document("u2", "grace@example.com", 11),
+    );
     worker.enqueue(second.clone()).expect("enqueue");
     worker.barrier().expect("barrier");
 
@@ -172,7 +191,9 @@ fn deleted_document_leaves_the_copy() {
     let scratch = Scratch::new("delete");
     let schema = user_schema();
     let store = hot_store(&scratch);
-    store.create_schema_collection(&schema).expect("create collection");
+    store
+        .create_schema_collection(&schema)
+        .expect("create collection");
 
     let backend = Arc::new(Mutex::new(
         SqliteFlushBackend::open(&scratch.join("query.db")).expect("open copy"),

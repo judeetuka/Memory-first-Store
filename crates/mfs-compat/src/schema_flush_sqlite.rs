@@ -14,8 +14,8 @@
 //! valid flush order fail.
 
 use crate::schema_flush::{
-    MFS_DOC_COLUMN, SchemaFlushBackend, SchemaFlushError, SchemaFlushRecord, SqlValue,
-    delete_sql, delete_values, ensure_schema_sql, quote_ident, upsert_sql, upsert_values,
+    MFS_DOC_COLUMN, SchemaFlushBackend, SchemaFlushError, SchemaFlushRecord, SqlValue, delete_sql,
+    delete_values, ensure_schema_sql, quote_ident, upsert_sql, upsert_values,
 };
 use mfs_core::Operation;
 use mfs_store::schema::Schema;
@@ -35,7 +35,8 @@ const CREATE_STATE_TABLE: &str = "CREATE TABLE IF NOT EXISTS \"mfs_flush_state\"
 pub(crate) const SELECT_WATERMARK: &str =
     "SELECT \"mfs_watermark\" FROM \"mfs_flush_state\" WHERE \"mfs_flush_id\" = 1";
 
-const UPSERT_WATERMARK: &str = "INSERT INTO \"mfs_flush_state\" (\"mfs_flush_id\", \"mfs_watermark\")
+const UPSERT_WATERMARK: &str =
+    "INSERT INTO \"mfs_flush_state\" (\"mfs_flush_id\", \"mfs_watermark\")
     VALUES (1, ?1)
     ON CONFLICT(\"mfs_flush_id\") DO UPDATE SET \"mfs_watermark\" = excluded.\"mfs_watermark\"";
 
@@ -75,7 +76,9 @@ impl fmt::Display for SqliteFlushError {
             Self::MissingSchema { collection } => {
                 write!(f, "collection `{collection}` has no registered schema")
             }
-            Self::Decode { message } => write!(f, "stored document could not be decoded: {message}"),
+            Self::Decode { message } => {
+                write!(f, "stored document could not be decoded: {message}")
+            }
         }
     }
 }
@@ -249,10 +252,7 @@ impl SchemaFlushBackend for SqliteFlushBackend {
     }
 }
 
-fn advance_watermark(
-    tx: &rusqlite::Transaction<'_>,
-    lsn: u64,
-) -> Result<(), SqliteFlushError> {
+fn advance_watermark(tx: &rusqlite::Transaction<'_>, lsn: u64) -> Result<(), SqliteFlushError> {
     let current: i64 = match tx.query_row(SELECT_WATERMARK, [], |row| row.get(0)) {
         Ok(value) => value,
         Err(rusqlite::Error::QueryReturnedNoRows) => 0,
