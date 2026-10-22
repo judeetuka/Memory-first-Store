@@ -1,10 +1,8 @@
-use crate::store::index::{
-    SchemaCollectionIndexes, SchemaIndexWritePlan, decode_schema_raw_value,
-};
+use crate::store::index::{SchemaCollectionIndexes, SchemaIndexWritePlan, decode_schema_raw_value};
 use crate::store::{
-    CollectionId, CollectionName, DocumentVersion, DurabilityMode, MfsStoreConfig, StoreError,
-    StoreResult, RawKey, RawValue, RawWalCompactionStats, RawWalSegmentWriter, ReadOptions,
-    ReadResult, WriteAcknowledgement, WriteOptions, WriteResult, compact_raw_wal,
+    CollectionId, CollectionName, DocumentVersion, DurabilityMode, MfsStoreConfig, RawKey,
+    RawValue, RawWalCompactionStats, RawWalSegmentWriter, ReadOptions, ReadResult, StoreError,
+    StoreResult, WriteAcknowledgement, WriteOptions, WriteResult, compact_raw_wal,
 };
 use crossbeam_utils::CachePadded;
 use mfs_core::FastBuildHasher;
@@ -400,7 +398,6 @@ impl MfsStore {
     ///
     /// The callback receives the raw key, the raw value, and the document
     /// version. Tombstone entries (deleted records) are silently skipped.
-
     fn raw_collection(&self, collection: &str) -> StoreResult<Arc<RawCollection>> {
         self.inner
             .collections
@@ -709,14 +706,10 @@ impl RawCollection {
         version: DocumentVersion,
     ) -> StoreResult<()> {
         let is_put = value.is_some();
-        let (outcome, old_record) =
-            pinned.insert_returning_old(key, RawRecord { value, version });
+        let (outcome, old_record) = pinned.insert_returning_old(key, RawRecord { value, version });
         match outcome {
             InsertOutcome::Inserted | InsertOutcome::Replaced => {
-                let was_live = old_record
-                    .as_ref()
-                    .and_then(|r| r.value.as_ref())
-                    .is_some();
+                let was_live = old_record.as_ref().and_then(|r| r.value.as_ref()).is_some();
                 match is_put {
                     true if !was_live => {
                         self.record_count.fetch_add(1, Ordering::Relaxed);

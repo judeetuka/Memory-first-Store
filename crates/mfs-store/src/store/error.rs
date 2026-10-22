@@ -1,10 +1,10 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::store::semantics::DurabilityMode;
-use crate::store::types::{DocumentVersion, RawKey};
 use crate::schema::SchemaError;
 use crate::schema_value::{SchemaValueError, SchemaValueKind};
+use crate::store::semantics::DurabilityMode;
+use crate::store::types::{DocumentVersion, RawKey};
 
 pub type StoreResult<T> = Result<T, StoreError>;
 

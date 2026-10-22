@@ -251,7 +251,7 @@ impl TinyLfuCounters {
             Self::U8(counters) => {
                 for counter in counters.iter() {
                     counter
-                        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                        .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                             Some(value >> 1)
                         })
                         .ok();
@@ -291,7 +291,7 @@ impl Packed4BitCounters {
         let byte = &self.bytes[index / 2];
         let shift = if index & 1 == 0 { 0 } else { 4 };
         let mask = 0x0F_u8 << shift;
-        byte.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        byte.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
             let current = (value & mask) >> shift;
             if current == 15 {
                 None
@@ -304,7 +304,7 @@ impl Packed4BitCounters {
 
     fn age(&self) {
         for byte in self.bytes.iter() {
-            byte.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            byte.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 let low = (value & 0x0F) >> 1;
                 let high = ((value >> 4) >> 1) << 4;
                 Some(low | high)

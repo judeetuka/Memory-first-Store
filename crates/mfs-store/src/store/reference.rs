@@ -1,9 +1,9 @@
-use crate::store::{
-    StoreError, StoreResult, MfsStore, RawKey, ReadOptions, SchemaReadResult,
-    schema_primary_key_raw_key,
-};
 use crate::schema::{Reference, Schema};
 use crate::schema_value::SchemaValue;
+use crate::store::{
+    MfsStore, RawKey, ReadOptions, SchemaReadResult, StoreError, StoreResult,
+    schema_primary_key_raw_key,
+};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
@@ -389,11 +389,12 @@ impl SchemaCollectionReferences {
                 actual_collection: field.reference.collection.clone(),
             });
         }
-        let primary = target_schema.primary_field().ok_or_else(|| {
-            StoreError::SchemaMissingPrimaryField {
-                collection: target_schema.name.clone(),
-            }
-        })?;
+        let primary =
+            target_schema
+                .primary_field()
+                .ok_or_else(|| StoreError::SchemaMissingPrimaryField {
+                    collection: target_schema.name.clone(),
+                })?;
         if primary.name != field.reference.field {
             return Err(StoreError::ReferenceTargetNotPrimary {
                 collection: schema.name.clone(),

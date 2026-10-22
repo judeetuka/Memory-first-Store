@@ -799,7 +799,7 @@ impl FrequencySketch {
     fn age(&self) {
         for counter in self.counters.iter() {
             counter
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                     Some(value >> 1)
                 })
                 .ok();

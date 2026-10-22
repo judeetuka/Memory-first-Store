@@ -1,5 +1,5 @@
-use crate::store::DurabilityMode;
 use crate::schema_value::SchemaValue;
+use crate::store::DurabilityMode;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

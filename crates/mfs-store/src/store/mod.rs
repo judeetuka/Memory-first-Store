@@ -24,8 +24,8 @@ pub use raw::MfsStore;
 pub use reference::{SchemaForwardReferenceInclude, SchemaReverseReferenceInclude};
 pub use schema_mode::{SchemaReadResult, schema_document_raw_key, schema_primary_key_raw_key};
 pub use semantics::{
-    DurabilityMode, StoreMode, StoreNonGoal, StoreScope, StoreSemantics, IndexConsistency,
-    ReadConsistency, RecoveryPrecedence, ReferenceLimit, V1_STORE_SEMANTICS, WriteAtomicity,
+    DurabilityMode, IndexConsistency, ReadConsistency, RecoveryPrecedence, ReferenceLimit,
+    StoreMode, StoreNonGoal, StoreScope, StoreSemantics, V1_STORE_SEMANTICS, WriteAtomicity,
     WriteConflictPolicy,
 };
 pub use types::{

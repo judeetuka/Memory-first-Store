@@ -91,7 +91,10 @@ fn unescape_json(s: &str) -> String {
                 Some('t') => out.push('\t'),
                 Some('\\') => out.push('\\'),
                 Some('"') => out.push('"'),
-                Some(c) => { out.push('\\'); out.push(c); }
+                Some(c) => {
+                    out.push('\\');
+                    out.push(c);
+                }
                 None => out.push('\\'),
             }
         } else {
@@ -110,18 +113,28 @@ const SEGMENT_COUNT: usize = 6;
 
 fn crawl_segment_paths(crawl_id: &str) -> std::io::Result<Vec<String>> {
     let url = format!("{CRAWL_BASE}/crawl-data/{crawl_id}/wet.paths.gz");
-    let mut resp = ureq::get(&url).call()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("HTTP {e}")))?;
-    let data = resp.body_mut().read_to_vec()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("body: {e}")))?;
+    let mut resp = ureq::get(&url)
+        .call()
+        .map_err(|e| std::io::Error::other(format!("HTTP {e}")))?;
+    let data = resp
+        .body_mut()
+        .read_to_vec()
+        .map_err(|e| std::io::Error::other(format!("body: {e}")))?;
     let mut decoder = flate2::read::GzDecoder::new(data.as_slice());
     let mut text = String::new();
     decoder.read_to_string(&mut text)?;
-    Ok(text.lines().take(SEGMENT_COUNT).map(|s| s.to_string()).collect())
+    Ok(text
+        .lines()
+        .take(SEGMENT_COUNT)
+        .map(|s| s.to_string())
+        .collect())
 }
 
 /// Download WET segments and extract to JSONL. Returns path to the JSONL file.
-fn download_and_extract(crawl_id: &str, output_dir: &Path) -> Result<String, Box<dyn std::error::Error>> {
+fn download_and_extract(
+    crawl_id: &str,
+    output_dir: &Path,
+) -> Result<String, Box<dyn std::error::Error>> {
     let jsonl_path = output_dir.join("extracted.jsonl");
     if jsonl_path.exists() {
         eprintln!("  JSONL already exists at {}", jsonl_path.display());
@@ -130,7 +143,10 @@ fn download_and_extract(crawl_id: &str, output_dir: &Path) -> Result<String, Box
     let wet_dir = output_dir.join("data");
     fs::create_dir_all(&wet_dir)?;
     let paths = crawl_segment_paths(crawl_id)?;
-    eprintln!("  Downloading {} WET segments from {crawl_id}...", paths.len());
+    eprintln!(
+        "  Downloading {} WET segments from {crawl_id}...",
+        paths.len()
+    );
     for (i, rel_path) in paths.iter().enumerate() {
         let url = format!("{CRAWL_BASE}/{rel_path}");
         let filename = Path::new(rel_path).file_name().unwrap().to_string_lossy();
@@ -140,9 +156,14 @@ fn download_and_extract(crawl_id: &str, output_dir: &Path) -> Result<String, Box
             continue;
         }
         eprintln!("  [{}/{}] downloading {} ...", i + 1, paths.len(), filename);
-        let mut resp = ureq::get(&url).call()
+        let mut resp = ureq::get(&url)
+            .call()
             .map_err(|e| format!("HTTP error downloading {}: {e}", url))?;
-        let body = resp.body_mut().with_config().limit(u64::MAX).read_to_vec()
+        let body = resp
+            .body_mut()
+            .with_config()
+            .limit(u64::MAX)
+            .read_to_vec()
             .map_err(|e| format!("body read error: {e}"))?;
         fs::write(&out_path, &body)?;
         eprintln!("         {} MB downloaded", body.len() / 1_048_576);
@@ -154,16 +175,27 @@ fn download_and_extract(crawl_id: &str, output_dir: &Path) -> Result<String, Box
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("gz"))
-        .filter(|p| p.file_name().and_then(|s| s.to_str()).map(|s| s.contains("warc.wet")).unwrap_or(false))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.contains("warc.wet"))
+                .unwrap_or(false)
+        })
         .collect();
     wet_files.sort();
     let mut total = 0u64;
     for (i, path) in wet_files.iter().enumerate() {
         let path_str = path.to_string_lossy();
-        eprintln!("  [{}/{}] extracting {} ...", i + 1, wet_files.len(), path.file_name().unwrap().to_string_lossy());
+        eprintln!(
+            "  [{}/{}] extracting {} ...",
+            i + 1,
+            wet_files.len(),
+            path.file_name().unwrap().to_string_lossy()
+        );
         let records = parse_wet_gz(&path_str)?;
         for rec in &records {
-            writeln!(writer,
+            writeln!(
+                writer,
                 "{{\"url\":{url},\"content\":{content}}}",
                 url = serde_json::to_string(&rec.url)?,
                 content = serde_json::to_string(&std::str::from_utf8(&rec.content).unwrap_or(""))?,
@@ -173,7 +205,10 @@ fn download_and_extract(crawl_id: &str, output_dir: &Path) -> Result<String, Box
         eprintln!("         -> {} records", records.len());
     }
     writer.flush()?;
-    eprintln!("  Total: {total} records written to {}", jsonl_path.display());
+    eprintln!(
+        "  Total: {total} records written to {}",
+        jsonl_path.display()
+    );
     Ok(jsonl_path.to_string_lossy().to_string())
 }
 
@@ -187,32 +222,55 @@ fn parse_wet_gz(path: &str) -> std::io::Result<Vec<WetRecord>> {
         loop {
             line.clear();
             let n = reader.read_line(&mut line)?;
-            if n == 0 { return Ok(records); }
-            if !line.trim().is_empty() { break; }
+            if n == 0 {
+                return Ok(records);
+            }
+            if !line.trim().is_empty() {
+                break;
+            }
         }
-        if !line.starts_with("WARC/1.0") { continue; }
+        if !line.starts_with("WARC/1.0") {
+            continue;
+        }
         let mut url = String::new();
         let mut content_length: usize = 0;
         let mut is_conversion = false;
         let headers_found = loop {
             line.clear();
             let n = reader.read_line(&mut line)?;
-            if n == 0 { return Ok(records); }
+            if n == 0 {
+                return Ok(records);
+            }
             let trimmed = line.trim();
-            if trimmed.is_empty() { break true; }
-            if let Some(u) = trimmed.strip_prefix("WARC-Target-URI: ") { url = u.to_string(); }
-            if trimmed == "WARC-Type: conversion" { is_conversion = true; }
-            if let Some(cl) = trimmed.strip_prefix("Content-Length: ") { content_length = cl.parse().unwrap_or(0); }
+            if trimmed.is_empty() {
+                break true;
+            }
+            if let Some(u) = trimmed.strip_prefix("WARC-Target-URI: ") {
+                url = u.to_string();
+            }
+            if trimmed == "WARC-Type: conversion" {
+                is_conversion = true;
+            }
+            if let Some(cl) = trimmed.strip_prefix("Content-Length: ") {
+                content_length = cl.parse().unwrap_or(0);
+            }
         };
-        if !headers_found { break; }
+        if !headers_found {
+            break;
+        }
         let mut content = vec![0u8; content_length];
-        if content_length > 0 {
-            if let Err(e) = reader.read_exact(&mut content) { eprintln!("  [warn] truncated record: {e}"); break; }
+        if content_length > 0
+            && let Err(e) = reader.read_exact(&mut content)
+        {
+            eprintln!("  [warn] truncated record: {e}");
+            break;
         }
         if is_conversion && !url.is_empty() && content_length > 0 {
             records.push(WetRecord { url, content });
         }
-        if records.len() % 5000 == 0 { eprint!("\r  parsed {} records...", records.len()); }
+        if records.len() % 5000 == 0 {
+            eprint!("\r  parsed {} records...", records.len());
+        }
     }
     Ok(records)
 }
@@ -237,13 +295,19 @@ impl BenchStats {
         let ops = |d: Duration| self.count as f64 / d.as_secs_f64();
         println!(
             "  {:<50} {:>8} keys  min={:>8.2} ns  median={:>8.2} ns  max={:>8.2} ns  ({:>10.0} keys/s)",
-            self.label, self.count, ns(self.min), ns(self.median), ns(self.max), ops(self.min),
+            self.label,
+            self.count,
+            ns(self.min),
+            ns(self.median),
+            ns(self.max),
+            ops(self.min),
         );
     }
 }
 
 fn measure<F>(label: String, count: u64, mut body: F) -> BenchStats
-where F: FnMut() -> u64,
+where
+    F: FnMut() -> u64,
 {
     let mut samples: Vec<Duration> = Vec::with_capacity(TRIALS);
     for _ in 0..TRIALS {
@@ -254,15 +318,27 @@ where F: FnMut() -> u64,
         samples.push(elapsed);
     }
     samples.sort();
-    BenchStats { label, count, min: samples[0], median: samples[TRIALS / 2], max: samples[TRIALS - 1] }
+    BenchStats {
+        label,
+        count,
+        min: samples[0],
+        median: samples[TRIALS / 2],
+        max: samples[TRIALS - 1],
+    }
 }
 
 fn format_duration(d: Duration) -> String {
-    if d.as_secs() > 60 { format!("{:.1}m {}s", d.as_secs_f64() / 60.0, d.as_secs() % 60) }
-    else if d.as_secs() > 0 { format!("{:.1}s", d.as_secs_f64()) }
-    else if d.as_millis() > 0 { format!("{} ms", d.as_millis()) }
-    else if d.as_micros() > 0 { format!("{} us", d.as_micros()) }
-    else { format!("{} ns", d.as_nanos()) }
+    if d.as_secs() > 60 {
+        format!("{:.1}m {}s", d.as_secs_f64() / 60.0, d.as_secs() % 60)
+    } else if d.as_secs() > 0 {
+        format!("{:.1}s", d.as_secs_f64())
+    } else if d.as_millis() > 0 {
+        format!("{} ms", d.as_millis())
+    } else if d.as_micros() > 0 {
+        format!("{} us", d.as_micros())
+    } else {
+        format!("{} ns", d.as_nanos())
+    }
 }
 
 // -----------------------------------------------------------
@@ -281,15 +357,29 @@ impl EngineRunner for MfsEngine {
     fn load(&mut self, records: &[WetRecord]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         use mfs_store::store::*;
         let cap = (records.len() * 2).max(1_000_000);
-        let engine = MfsStore::open_memory(MfsStoreConfig { raw_initial_capacity: cap, ..MfsStoreConfig::default() })?;
+        let engine = MfsStore::open_memory(MfsStoreConfig {
+            raw_initial_capacity: cap,
+            ..MfsStoreConfig::default()
+        })?;
         engine.create_raw_collection("cc")?;
         let keys: Vec<Vec<u8>> = records.iter().map(|r| r.url.as_bytes().to_vec()).collect();
         for (i, rec) in records.iter().enumerate() {
-            engine.put_raw("cc", RawKey::from(rec.url.as_bytes()), RawValue::from(rec.content.as_slice()), WriteOptions::default())?;
-            if i > 0 && i % 10000 == 0 { eprint!("\r  mfs_store: ingesting {}/{}", i, records.len()); }
+            engine.put_raw(
+                "cc",
+                RawKey::from(rec.url.as_bytes()),
+                RawValue::from(rec.content.as_slice()),
+                WriteOptions::default(),
+            )?;
+            if i > 0 && i % 10000 == 0 {
+                eprint!("\r  mfs_store: ingesting {}/{}", i, records.len());
+            }
         }
         self.0 = Some(engine);
-        eprintln!("\r  mfs_store: ingesting {}/{}", records.len(), records.len());
+        eprintln!(
+            "\r  mfs_store: ingesting {}/{}",
+            records.len(),
+            records.len()
+        );
         Ok(keys)
     }
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
@@ -311,13 +401,18 @@ impl EngineRunner for SqliteEngine {
         conn.execute_batch(
             "PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; PRAGMA cache_size=-200000; PRAGMA temp_store=MEMORY;"
         )?;
-        conn.execute("CREATE TABLE cc (url TEXT PRIMARY KEY, content BLOB) WITHOUT ROWID", [])?;
+        conn.execute(
+            "CREATE TABLE cc (url TEXT PRIMARY KEY, content BLOB) WITHOUT ROWID",
+            [],
+        )?;
         let tx = conn.unchecked_transaction()?;
         {
             let mut stmt = tx.prepare("INSERT INTO cc (url, content) VALUES (?1, ?2)")?;
             for (i, rec) in records.iter().enumerate() {
                 stmt.execute(rusqlite::params![rec.url, rec.content])?;
-                if i > 0 && i % 10000 == 0 { eprint!("\r  sqlite: ingesting {}/{}", i, records.len()); }
+                if i > 0 && i % 10000 == 0 {
+                    eprint!("\r  sqlite: ingesting {}/{}", i, records.len());
+                }
             }
         }
         tx.commit()?;
@@ -351,7 +446,9 @@ impl EngineRunner for RedbEngine {
             let mut table = txn.open_table(CC_TABLE)?;
             for (i, rec) in records.iter().enumerate() {
                 table.insert(rec.url.as_str(), rec.content.as_slice())?;
-                if i > 0 && i % 10000 == 0 { eprint!("\r  redb: ingesting {}/{}", i, records.len()); }
+                if i > 0 && i % 10000 == 0 {
+                    eprint!("\r  redb: ingesting {}/{}", i, records.len());
+                }
             }
         }
         txn.commit()?;
@@ -381,10 +478,12 @@ impl EngineRunner for FjallEngine {
     fn load(&mut self, records: &[WetRecord]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         let tmp = tempfile::tempdir()?;
         let db = fjall::Database::builder(tmp.path()).open()?;
-        let tree = db.keyspace("cc", || fjall::KeyspaceCreateOptions::default())?;
+        let tree = db.keyspace("cc", fjall::KeyspaceCreateOptions::default)?;
         for (i, rec) in records.iter().enumerate() {
             tree.insert(rec.url.as_bytes(), &rec.content)?;
-            if i > 0 && i % 10000 == 0 { eprint!("\r  fjall: ingesting {}/{}", i, records.len()); }
+            if i > 0 && i % 10000 == 0 {
+                eprint!("\r  fjall: ingesting {}/{}", i, records.len());
+            }
         }
         self.db = Some(db);
         self.tree = Some(tree);
@@ -407,10 +506,19 @@ impl EngineRunner for FjallEngine {
 fn bench_mfs(records: &[WetRecord], total_data_gb: f64) -> Result<(), Box<dyn std::error::Error>> {
     let mut eng = MfsEngine(None);
     let keys = eng.load(records)?;
-    run_all_patterns("mfs_store (ConcurrentMap)", eng, &keys, records, total_data_gb)
+    run_all_patterns(
+        "mfs_store (ConcurrentMap)",
+        eng,
+        &keys,
+        records,
+        total_data_gb,
+    )
 }
 
-fn bench_sqlite(records: &[WetRecord], total_data_gb: f64) -> Result<(), Box<dyn std::error::Error>> {
+fn bench_sqlite(
+    records: &[WetRecord],
+    total_data_gb: f64,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut eng = SqliteEngine(None);
     let keys = eng.load(records)?;
     run_all_patterns("SQLite (in-memory)", eng, &keys, records, total_data_gb)
@@ -422,8 +530,14 @@ fn bench_redb(records: &[WetRecord], total_data_gb: f64) -> Result<(), Box<dyn s
     run_all_patterns("redb", eng, &keys, records, total_data_gb)
 }
 
-fn bench_fjall(records: &[WetRecord], total_data_gb: f64) -> Result<(), Box<dyn std::error::Error>> {
-    let mut eng = FjallEngine { db: None, tree: None };
+fn bench_fjall(
+    records: &[WetRecord],
+    total_data_gb: f64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut eng = FjallEngine {
+        db: None,
+        tree: None,
+    };
     let keys = eng.load(records)?;
     run_all_patterns("fjall (LSM-tree)", eng, &keys, records, total_data_gb)
 }
@@ -445,8 +559,8 @@ fn run_all_patterns(
     // Sequential
     measure(format!("{} sequential", name), count, || {
         let mut sum: u64 = 0;
-        for row in 0..count as usize {
-            if let Ok(Some(v)) = eng.get(key_refs[row]) {
+        for key in &key_refs {
+            if let Ok(Some(v)) = eng.get(key) {
                 sum ^= v.first().copied().unwrap_or(0) as u64;
             }
         }
@@ -457,15 +571,19 @@ fn run_all_patterns(
 
     // Random
     {
+        use rand::SeedableRng;
         use rand::rngs::SmallRng;
         use rand::seq::SliceRandom;
-        use rand::SeedableRng;
         let mut rng = SmallRng::seed_from_u64(42);
         let mut shuffled: Vec<&[u8]> = keys.iter().map(|k| k.as_slice()).collect();
         shuffled.shuffle(&mut rng);
         measure(format!("{} random", name), count, || {
             let mut sum: u64 = 0;
-            for k in &shuffled { if let Ok(Some(v)) = eng.get(k) { sum ^= v.first().copied().unwrap_or(0) as u64; } }
+            for k in &shuffled {
+                if let Ok(Some(v)) = eng.get(k) {
+                    sum ^= v.first().copied().unwrap_or(0) as u64;
+                }
+            }
             sum
         })
         .print();
@@ -474,9 +592,9 @@ fn run_all_patterns(
     // 2 threads
     let all_keys: Vec<Vec<u8>> = records.iter().map(|r| r.url.as_bytes().to_vec()).collect();
     {
+        use rand::SeedableRng;
         use rand::rngs::SmallRng;
         use rand::seq::SliceRandom;
-        use rand::SeedableRng;
         let mut rng = SmallRng::seed_from_u64(42);
         let mut shuffled = all_keys.clone();
         shuffled.shuffle(&mut rng);
@@ -492,25 +610,37 @@ fn run_all_patterns(
                 let s = sum.clone();
                 handles.push(thread::spawn(move || {
                     let mut local: u64 = 0;
-                    for k in &c { if let Ok(Some(v)) = e.get(k) { local ^= v.first().copied().unwrap_or(0) as u64; } }
+                    for k in &c {
+                        if let Ok(Some(v)) = e.get(k) {
+                            local ^= v.first().copied().unwrap_or(0) as u64;
+                        }
+                    }
                     s.fetch_add(local as usize, Ordering::Relaxed);
                 }));
             }
-            for h in handles { h.join().unwrap(); }
+            for h in handles {
+                h.join().unwrap();
+            }
             sum.load(Ordering::Relaxed) as u64
-        }).print();
+        })
+        .print();
     }
 
     // 4 threads
     {
+        use rand::SeedableRng;
         use rand::rngs::SmallRng;
         use rand::seq::SliceRandom;
-        use rand::SeedableRng;
         let mut rng = SmallRng::seed_from_u64(42);
         let mut shuffled = all_keys;
         shuffled.shuffle(&mut rng);
         let cs = shuffled.len() / 4;
-        let chunks = [shuffled[..cs].to_vec(), shuffled[cs..cs*2].to_vec(), shuffled[cs*2..cs*3].to_vec(), shuffled[cs*3..].to_vec()];
+        let chunks = [
+            shuffled[..cs].to_vec(),
+            shuffled[cs..cs * 2].to_vec(),
+            shuffled[cs * 2..cs * 3].to_vec(),
+            shuffled[cs * 3..].to_vec(),
+        ];
         let eng = eng.clone();
         measure(format!("{} 4-thread random", name), count, || {
             let sum = Arc::new(AtomicUsize::new(0));
@@ -521,13 +651,20 @@ fn run_all_patterns(
                 let s = sum.clone();
                 handles.push(thread::spawn(move || {
                     let mut local: u64 = 0;
-                    for k in &c { if let Ok(Some(v)) = e.get(k) { local ^= v.first().copied().unwrap_or(0) as u64; } }
+                    for k in &c {
+                        if let Ok(Some(v)) = e.get(k) {
+                            local ^= v.first().copied().unwrap_or(0) as u64;
+                        }
+                    }
                     s.fetch_add(local as usize, Ordering::Relaxed);
                 }));
             }
-            for h in handles { h.join().unwrap(); }
+            for h in handles {
+                h.join().unwrap();
+            }
             sum.load(Ordering::Relaxed) as u64
-        }).print();
+        })
+        .print();
     }
     Ok(())
 }
@@ -551,10 +688,16 @@ fn run_benchmark(jsonl_path: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Records:          {}", all_records.len());
     println!("Total data:       {:.3} GB", total_data_gb);
-    println!("Avg value size:   {:.0} bytes", total_value_bytes as f64 / all_records.len() as f64);
+    println!(
+        "Avg value size:   {:.0} bytes",
+        total_value_bytes as f64 / all_records.len() as f64
+    );
     println!("Load time:        {}", format_duration(load_elapsed));
     println!();
-    println!("Phase 2: Search benchmarks ({} trials, min/median/max)", TRIALS);
+    println!(
+        "Phase 2: Search benchmarks ({} trials, min/median/max)",
+        TRIALS
+    );
 
     bench_mfs(&all_records, total_data_gb)?;
     bench_sqlite(&all_records, total_data_gb)?;
@@ -570,17 +713,29 @@ fn main() {
     if args.len() < 2 {
         eprintln!("Usage:");
         eprintln!("  {} <jsonl_path>                  direct bench", args[0]);
-        eprintln!("  {} --crawl CC-MAIN-2025-33 <dir>  download + extract + bench", args[0]);
+        eprintln!(
+            "  {} --crawl CC-MAIN-2025-33 <dir>  download + extract + bench",
+            args[0]
+        );
         std::process::exit(1);
     }
     let jsonl_path = if args[1] == "--crawl" {
-        if args.len() < 4 { eprintln!("Usage: {} --crawl CC-MAIN-YYYY-NN <output_dir>", args[0]); std::process::exit(1); }
+        if args.len() < 4 {
+            eprintln!("Usage: {} --crawl CC-MAIN-YYYY-NN <output_dir>", args[0]);
+            std::process::exit(1);
+        }
         match download_and_extract(&args[2], &PathBuf::from(&args[3])) {
             Ok(p) => p,
-            Err(e) => { eprintln!("Download/extract failed: {e}"); std::process::exit(1); }
+            Err(e) => {
+                eprintln!("Download/extract failed: {e}");
+                std::process::exit(1);
+            }
         }
     } else {
         args[1].clone()
     };
-    if let Err(e) = run_benchmark(&jsonl_path) { eprintln!("Error: {e}"); std::process::exit(1); }
+    if let Err(e) = run_benchmark(&jsonl_path) {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
 }

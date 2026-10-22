@@ -1,13 +1,13 @@
 //! Durable hot storage layer for `memory-first-store`.
 
-pub mod store;
 pub mod schema;
 pub mod schema_value;
+pub mod store;
 pub mod value;
 
-pub use store::*;
 pub use schema::*;
 pub use schema_value::*;
+pub use store::*;
 pub use value::*;
 
 #[cfg(test)]
@@ -486,7 +486,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn multiget_basic() {
         let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
@@ -580,7 +579,6 @@ mod tests {
         assert!(results.is_empty(), "empty keys should return empty results");
     }
 
-
     #[test]
     fn count_unfiltered() {
         let engine = MfsStore::open_memory(small_config()).expect("open memory engine");
@@ -590,9 +588,7 @@ mod tests {
             .expect("create schema collection");
         seed_users(&engine, &schema, 7, 70);
 
-        let count = engine
-            .count_schema(&schema)
-            .expect("count unfiltered");
+        let count = engine.count_schema(&schema).expect("count unfiltered");
         assert_eq!(count, 7);
     }
 
@@ -605,9 +601,7 @@ mod tests {
             .expect("create schema collection");
         seed_users(&engine, &schema, 5, 100);
 
-        let before = engine
-            .count_schema(&schema)
-            .expect("count before delete");
+        let before = engine.count_schema(&schema).expect("count before delete");
         assert_eq!(before, 5);
 
         engine
@@ -618,9 +612,7 @@ mod tests {
             )
             .expect("delete u2");
 
-        let after = engine
-            .count_schema(&schema)
-            .expect("count after delete");
+        let after = engine.count_schema(&schema).expect("count after delete");
         assert_eq!(after, 4, "count should decrease by 1 after deleting u2");
     }
 }

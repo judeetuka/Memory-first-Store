@@ -3,7 +3,7 @@
 //! Run with `cargo run -p mfs-store --release --example nosql_raw_kv`.
 
 use mfs_store::store::{
-    DocumentVersion, MfsStoreConfig, StoreError, MfsStore, RawKey, RawValue, ReadOptions,
+    DocumentVersion, MfsStore, MfsStoreConfig, RawKey, RawValue, ReadOptions, StoreError,
     WriteOptions,
 };
 
