@@ -14,6 +14,8 @@ you keep that mental model while running entirely in-process.
 | [`object_store_durability`](mutable-object-store.md) | `MutableObjectStorePersistence` | WAL + checkpoint + cold-tier persistence bundle for `MfsMutableObjectStore`. |
 | [`schema_store`](schema-store.md) | `SchemaStore` | Schema-validated document store with secondary indexes, unique constraints, and foreign-key references. |
 | [`schema_flush`](schema-store.md) | `SchemaFlushBackend` | SQL generation helpers that turn schema flush records into CREATE TABLE, UPSERT, and DELETE statements. |
+| [`schema_flush_sqlite`](sqlite-flush.md) | `SqliteFlushBackend` | The concrete backend that executes that SQL against a real SQLite file, with an LSN watermark and a document round-trip. |
+| [`flush_worker`](sqlite-flush.md) | `FlushWorker` | Batched background writer: enqueue on the hot path, commit in batches, never drop a failed batch. |
 | [`page_store`](sqlite-vfs.md) | `MfsPageStore` / `InMemoryPageStore` | Byte-addressable file store with advisory locking. The low-level surface database adapters plug into. |
 | [`page_vfs`](sqlite-vfs.md) | `MfsPageVfs` | SQLite VFS-shaped adapter over `MfsPageStore`. Name-to-FileId namespace, connection-scoped locks. |
 
@@ -28,6 +30,9 @@ You're building an in-process cache or store and one of these applies:
 - You're embedding SQLite-shaped storage and want to control the page I/O
   layer yourself.
 - You need to flush in-memory state to SQL tables with LSN-guarded upserts.
+  [`schema_flush`](sqlite-flush.md) generates the SQL;
+  [`schema_flush_sqlite`](sqlite-flush.md) runs it against a real SQLite file
+  and [`flush_worker`](sqlite-flush.md) does the work in the background.
 
 ## When to skip it
 
@@ -59,4 +64,6 @@ feature flag. The core `MfsObjectStore` is always available.
 - [Mutable Object Store](mutable-object-store.md) for the growable variant
   with TTL, cold tier, and persistence.
 - [Schema Store](schema-store.md) for schema-validated documents and SQL flush.
+- [SQLite Flush](sqlite-flush.md) for the concrete backend, the background
+  flush worker, and what the copy can and cannot lose.
 - [SQLite VFS](sqlite-vfs.md) for the page store and VFS adapter.

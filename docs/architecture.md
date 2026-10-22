@@ -19,7 +19,7 @@
 | Foundation | `mfs-core` | `ConcurrentMap`, `MemoryFirstStore`, `LockFreeCache`, `WriteBehindCache`, `DenseU64Lane`, `InlineU64Map`, WAL (`durability`), S3-FIFO policy cache |
 | Domain | `mfs-neural` | Dense numeric storage over mfs-core: `DenseKvMap`, `DenseWriteBehindMap`, `BucketedIndex` |
 | Domain | `mfs-store` | Durable hot storage over mfs-core: `MfsStore`, `Schema`, `MfsValue`, checkpoint + WAL recovery |
-| Integration | `mfs-compat` | Compatibility adapters over mfs-core + mfs-store: `MfsObjectStore`, `SchemaStore`, SQLite VFS |
+| Integration | `mfs-compat` | Compatibility adapters over mfs-core + mfs-store: `MfsObjectStore`, `SchemaStore`, SQLite VFS, SQLite flush backend + background flush worker |
 | Facade | `memory-first-store` | Re-exports all public types from underlying crates |
 
 ## Feature Flags
@@ -54,6 +54,12 @@ prescribe a specific backend.
   write-behind: mutations land in memory immediately, and a background
   flusher persists them in batches. This keeps the hot path at L1/L2
   cache latency.
+
+- **Two durability domains, not one.** The hot layer owns its WAL and
+  checkpoints. A flush into a query copy is a *separate* domain with its
+  own file, and the copy is never the source of truth. A crash of the
+  copy costs only what had not been flushed, because the hot layer still
+  holds it. See [SQLite Flush](compat/sqlite-flush.md).
 
 - **Tiered defaults.** Simple workloads get `LockFreeCache`. Workloads
   needing durability get `WriteBehindCache`. Redis-like workloads get
