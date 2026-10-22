@@ -1,10 +1,13 @@
 //! Legacy SQL, object-store, and SQLite-shaped compatibility adapters.
 
+pub mod flush_worker;
 pub mod object_store;
 pub mod object_store_durability;
 pub mod page_store;
 pub mod page_vfs;
 pub mod schema_flush;
+pub mod schema_flush_sqlite;
+pub mod schema_flush_sqlite_reader;
 pub mod schema_store;
 
 #[cfg(test)]

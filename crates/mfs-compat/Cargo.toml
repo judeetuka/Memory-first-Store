@@ -15,9 +15,9 @@ mfs-store = { path = "../mfs-store" }
 parking_lot.workspace = true
 hashbrown.workspace = true
 crossbeam-utils.workspace = true
+rusqlite.workspace = true
 
 [dev-dependencies]
-rusqlite.workspace = true
 redb.workspace = true
 fjall.workspace = true
 
