@@ -3,7 +3,7 @@
 //! Run with `cargo run -p mfs-store --release --example nosql_checkpoint_recovery`.
 
 use mfs_store::store::{
-    MfsStoreConfig, Lsn, MfsStore, RawKey, RawValue, RawWalSegmentWriter, ReadOptions,
+    Lsn, MfsStore, MfsStoreConfig, RawKey, RawValue, RawWalSegmentWriter, ReadOptions,
     WriteOptions, recover_raw_checkpoint_then_wal, write_raw_checkpoint_to_dir,
 };
 

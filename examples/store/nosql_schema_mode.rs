@@ -2,9 +2,9 @@
 //!
 //! Run with `cargo run -p mfs-store --release --example nosql_schema_mode`.
 
-use mfs_store::store::{DocumentVersion, MfsStoreConfig, MfsStore, ReadOptions, WriteOptions};
 use mfs_store::schema::{Schema, SchemaField, SchemaFieldType};
 use mfs_store::schema_value::SchemaValue;
+use mfs_store::store::{DocumentVersion, MfsStore, MfsStoreConfig, ReadOptions, WriteOptions};
 
 fn users_schema() -> Schema {
     let mut id = SchemaField::new("id", SchemaFieldType::String);

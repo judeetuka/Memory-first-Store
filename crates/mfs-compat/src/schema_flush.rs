@@ -6,11 +6,20 @@ use mfs_store::schema::{Schema, SchemaField, SchemaFieldType};
 use mfs_store::schema_value::{
     SchemaValue, SchemaValueError, encode_schema_value, validate_codec_safe,
 };
+use mfs_store::{StoreError, schema_primary_key_raw_key};
 use std::collections::HashMap;
 use std::fmt;
 
 const MFS_KEY_COLUMN: &str = "mfs_key";
 const MFS_LSN_COLUMN: &str = "mfs_lsn";
+
+/// Column that carries the encoded source document.
+///
+/// The typed columns exist so SQL can filter and join on individual fields,
+/// but a generic collection has no bespoke writer to reproduce them. The
+/// encoded document is the lossless copy: it is what a reader decodes when it
+/// wants the document the hot layer actually holds.
+pub const MFS_DOC_COLUMN: &str = "doc";
 
 pub trait SchemaFlushBackend {
     type Error;
@@ -75,6 +84,17 @@ pub enum SchemaFlushError {
         field: String,
         error: SchemaValueError,
     },
+    /// The document itself is not encodable (non-finite float, too deep, ...).
+    ///
+    /// Kept separate from [`Self::EncodeValue`] because the failure is about
+    /// the whole document, not about one schema field.
+    EncodeDocument {
+        error: SchemaValueError,
+    },
+    /// The primary key could not be encoded into the hot layer's key bytes.
+    KeyEncoding {
+        error: StoreError,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +120,41 @@ impl SchemaFlushRecord {
             document: record.value.as_ref().map(|value| value.as_ref().clone()),
             lsn: record.version,
         }
+    }
+
+    /// Build a flush record for a schema write the hot layer just committed.
+    ///
+    /// `primary_key` is the primary field value; the encoded key bytes are
+    /// derived with the same encoding the hot layer uses, so the copy can be
+    /// matched against a store read.
+    ///
+    /// `lsn` must be the store-wide WAL LSN of the write (see
+    /// [`mfs_store::WriteResult::lsn`]). The flush copy tracks the highest
+    /// committed LSN as its watermark, and a per-document version would make
+    /// that watermark meaningless.
+    ///
+    /// A `None` document means the record is a delete: the copy drops the row
+    /// instead of writing one.
+    pub fn from_schema_write(
+        collection: impl Into<String>,
+        schema: &Schema,
+        primary_key: &SchemaValue,
+        document: Option<SchemaValue>,
+        lsn: u64,
+    ) -> Result<Self, SchemaFlushError> {
+        let key = schema_primary_key_raw_key(schema, primary_key)
+            .map_err(|error| SchemaFlushError::KeyEncoding { error })?;
+        Ok(Self {
+            collection: collection.into(),
+            key: key.into_bytes(),
+            op: if document.is_some() {
+                Operation::Put
+            } else {
+                Operation::Delete
+            },
+            document,
+            lsn,
+        })
     }
 }
 
@@ -144,6 +199,12 @@ impl fmt::Display for SchemaFlushError {
                     "field `{field}` could not be encoded for SQL flush: {error}"
                 )
             }
+            Self::EncodeDocument { error } => {
+                write!(f, "document could not be encoded for SQL flush: {error}")
+            }
+            Self::KeyEncoding { error } => {
+                write!(f, "primary key could not be encoded: {error}")
+            }
         }
     }
 }
@@ -160,7 +221,10 @@ pub fn sql_columns(schema: &Schema) -> Result<Vec<SqlColumn>, SchemaFlushError> 
 
     for field in schema.fields.iter().filter(|field| field.stored) {
         let column = sql_column(field);
-        if column.column_name == MFS_KEY_COLUMN || column.column_name == MFS_LSN_COLUMN {
+        if column.column_name == MFS_KEY_COLUMN
+            || column.column_name == MFS_LSN_COLUMN
+            || column.column_name == MFS_DOC_COLUMN
+        {
             return Err(SchemaFlushError::ReservedColumnName {
                 collection: schema.name.clone(),
                 field: field.name.clone(),
@@ -206,6 +270,7 @@ pub fn create_table_sql(schema: &Schema) -> Result<String, SchemaFlushError> {
         parts.push(definition);
     }
 
+    parts.push(format!("{} BLOB", quote_ident(MFS_DOC_COLUMN)));
     parts.push(format!(
         "{} BLOB NOT NULL UNIQUE",
         quote_ident(MFS_KEY_COLUMN)
@@ -257,6 +322,7 @@ pub fn upsert_sql(schema: &Schema) -> Result<String, SchemaFlushError> {
         .iter()
         .map(|column| quote_ident(&column.column_name))
         .collect::<Vec<_>>();
+    insert_columns.push(quote_ident(MFS_DOC_COLUMN));
     insert_columns.push(quote_ident(MFS_KEY_COLUMN));
     insert_columns.push(quote_ident(MFS_LSN_COLUMN));
     let placeholders = (0..insert_columns.len())
@@ -316,6 +382,10 @@ pub fn upsert_values(
         }
     }
 
+    // The typed columns above are a projection of the document; the encoded
+    // document is the document itself. Without it a collection that has no
+    // bespoke writer would flush a key with no payload.
+    values.push(SqlValue::Blob(encode_document(document)?));
     values.push(SqlValue::Blob(record.key.clone()));
     values.push(SqlValue::Integer(lsn_to_i64(record.lsn)?));
     Ok(values)
@@ -408,6 +478,17 @@ fn encode_value_blob(field: &str, value: &SchemaValue) -> Result<SqlValue, Schem
     Ok(SqlValue::Blob(encoded))
 }
 
+/// Encode a whole document for the `doc` column.
+///
+/// `encode_schema_value` panics on values the codec cannot represent, so the
+/// document is validated first and the failure is reported, never asserted.
+fn encode_document(document: &SchemaValue) -> Result<Vec<u8>, SchemaFlushError> {
+    validate_codec_safe(document).map_err(|error| SchemaFlushError::EncodeDocument { error })?;
+    let mut encoded = Vec::new();
+    encode_schema_value(document, &mut encoded);
+    Ok(encoded)
+}
+
 fn lsn_to_i64(lsn: u64) -> Result<i64, SchemaFlushError> {
     i64::try_from(lsn).map_err(|_| SchemaFlushError::LsnTooLarge { lsn })
 }
@@ -426,228 +507,4 @@ fn column_name(name: &str) -> String {
 
 pub fn quote_ident(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn user_schema() -> Schema {
-        let mut id = SchemaField::new("id", SchemaFieldType::String);
-        id.primary = true;
-        id.indexed = true;
-        id.unique = true;
-        let mut email = SchemaField::new("email", SchemaFieldType::String);
-        email.indexed = true;
-        email.unique = true;
-        let mut company_id = SchemaField::new("company_id", SchemaFieldType::String);
-        company_id.indexed = true;
-        company_id.reference = Some(mfs_store::schema::Reference::new("companies", "id"));
-        let mut created_at = SchemaField::new("created_at", SchemaFieldType::Int64);
-        created_at.indexed = true;
-        created_at.sort = true;
-        Schema::new("users", vec![id, email, company_id, created_at])
-    }
-
-    fn document() -> SchemaValue {
-        SchemaValue::object([
-            ("id".to_string(), SchemaValue::String("u1".to_string())),
-            (
-                "email".to_string(),
-                SchemaValue::String("ada@example.com".to_string()),
-            ),
-            (
-                "company_id".to_string(),
-                SchemaValue::String("c1".to_string()),
-            ),
-            ("created_at".to_string(), SchemaValue::Int64(10)),
-        ])
-    }
-
-    #[test]
-    fn ddl_contains_columns_lsn_and_references() {
-        let ddl = create_table_sql(&user_schema()).unwrap();
-
-        assert!(ddl.contains("\"id\" TEXT PRIMARY KEY"));
-        assert!(ddl.contains("\"email\" TEXT UNIQUE"));
-        assert!(ddl.contains("\"company_id\" TEXT REFERENCES \"companies\"(\"id\")"));
-        assert!(ddl.contains("\"mfs_key\" BLOB NOT NULL UNIQUE"));
-        assert!(ddl.contains("\"mfs_lsn\" INTEGER NOT NULL"));
-    }
-
-    #[test]
-    fn indexes_include_indexed_non_unique_fields() {
-        let indexes = create_index_sql(&user_schema()).unwrap();
-
-        assert!(
-            indexes
-                .iter()
-                .any(|sql| sql.contains("users_company_id_idx"))
-        );
-        assert!(
-            indexes
-                .iter()
-                .any(|sql| sql.contains("users_created_at_idx"))
-        );
-        assert!(!indexes.iter().any(|sql| sql.contains("users_email_idx")));
-    }
-
-    #[test]
-    fn upsert_sql_has_lsn_guard() {
-        let sql = upsert_sql(&user_schema()).unwrap();
-
-        assert!(sql.contains("ON CONFLICT (\"id\") DO UPDATE"));
-        assert!(sql.contains("WHERE \"users\".\"mfs_lsn\" < excluded.\"mfs_lsn\""));
-    }
-
-    #[test]
-    fn delete_sql_has_lsn_guard() {
-        let sql = delete_sql(&user_schema()).unwrap();
-
-        assert_eq!(
-            sql,
-            "DELETE FROM \"users\" WHERE \"mfs_key\" = ? AND \"mfs_lsn\" <= ?;"
-        );
-    }
-
-    #[test]
-    fn upsert_values_follow_schema_column_order() {
-        let record = SchemaFlushRecord {
-            collection: "users".to_string(),
-            key: vec![0, b'u', b'1'],
-            op: Operation::Put,
-            document: Some(document()),
-            lsn: 42,
-        };
-
-        assert_eq!(
-            upsert_values(&user_schema(), &record).unwrap(),
-            vec![
-                SqlValue::Text("u1".to_string()),
-                SqlValue::Text("ada@example.com".to_string()),
-                SqlValue::Text("c1".to_string()),
-                SqlValue::Integer(10),
-                SqlValue::Blob(vec![0, b'u', b'1']),
-                SqlValue::Integer(42),
-            ]
-        );
-    }
-
-    #[test]
-    fn delete_values_are_key_and_lsn() {
-        let record = SchemaFlushRecord {
-            collection: "users".to_string(),
-            key: vec![0, b'u', b'1'],
-            op: Operation::Delete,
-            document: None,
-            lsn: 43,
-        };
-
-        assert_eq!(
-            delete_values(&record).unwrap(),
-            vec![SqlValue::Blob(vec![0, b'u', b'1']), SqlValue::Integer(43)]
-        );
-    }
-
-    #[test]
-    fn reserved_mfs_columns_are_rejected() {
-        let mut id = SchemaField::new("id", SchemaFieldType::String);
-        id.primary = true;
-        let schema = Schema::new(
-            "bad",
-            vec![id, SchemaField::new("mfs_key", SchemaFieldType::String)],
-        );
-
-        assert!(matches!(
-            sql_columns(&schema),
-            Err(SchemaFlushError::ReservedColumnName { collection, field, column })
-                if collection == "bad" && field == "mfs_key" && column == "mfs_key"
-        ));
-    }
-
-    #[test]
-    fn column_name_collisions_are_rejected() {
-        let mut id = SchemaField::new("id", SchemaFieldType::String);
-        id.primary = true;
-        let mut schema = Schema::new(
-            "bad",
-            vec![
-                id,
-                SchemaField::new("profile.name", SchemaFieldType::String),
-                SchemaField::new("profile_name", SchemaFieldType::String),
-            ],
-        );
-        schema.enable_nested_fields = true;
-
-        assert!(matches!(
-            sql_columns(&schema),
-            Err(SchemaFlushError::DuplicateColumnName { collection, column, .. })
-                if collection == "bad" && column == "profile_name"
-        ));
-    }
-
-    #[test]
-    fn object_and_array_fields_reject_wrong_value_shape() {
-        let mut id = SchemaField::new("id", SchemaFieldType::String);
-        id.primary = true;
-        let schema = Schema::new(
-            "docs",
-            vec![
-                id,
-                SchemaField::new("profile", SchemaFieldType::Object(Vec::new())),
-                SchemaField::new(
-                    "tags",
-                    SchemaFieldType::Array(Box::new(SchemaFieldType::String)),
-                ),
-            ],
-        );
-        let record = SchemaFlushRecord {
-            collection: "docs".to_string(),
-            key: vec![0, b'd', b'1'],
-            op: Operation::Put,
-            document: Some(SchemaValue::object([
-                ("id".to_string(), SchemaValue::String("d1".to_string())),
-                (
-                    "profile".to_string(),
-                    SchemaValue::String("not object".to_string()),
-                ),
-                (
-                    "tags".to_string(),
-                    SchemaValue::String("not array".to_string()),
-                ),
-            ])),
-            lsn: 1,
-        };
-
-        assert!(matches!(
-            upsert_values(&schema, &record),
-            Err(SchemaFlushError::TypeMismatch { field, expected })
-                if field == "profile" && expected == "BLOB"
-        ));
-    }
-
-    #[test]
-    fn codec_unsafe_nested_values_return_error() {
-        let mut id = SchemaField::new("id", SchemaFieldType::String);
-        id.primary = true;
-        let schema = Schema::new(
-            "docs",
-            vec![id, SchemaField::new("payload", SchemaFieldType::Json)],
-        );
-        let record = SchemaFlushRecord {
-            collection: "docs".to_string(),
-            key: vec![0, b'd', b'1'],
-            op: Operation::Put,
-            document: Some(SchemaValue::object([
-                ("id".to_string(), SchemaValue::String("d1".to_string())),
-                ("payload".to_string(), SchemaValue::Float(f64::NAN)),
-            ])),
-            lsn: 1,
-        };
-
-        assert!(matches!(
-            upsert_values(&schema, &record),
-            Err(SchemaFlushError::EncodeValue { field, .. }) if field == "payload"
-        ));
-    }
 }

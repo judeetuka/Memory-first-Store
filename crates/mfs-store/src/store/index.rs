@@ -1,10 +1,10 @@
-use crate::store::reference::{SchemaCollectionReferences, SchemaReferenceWritePlan};
-use crate::store::{
-    DocumentVersion, StoreError, StoreResult, MfsStore, RawKey, RawValue, ReadOptions,
-    schema_document_raw_key,
-};
 use crate::schema::{Schema, SchemaFieldType};
 use crate::schema_value::{SchemaValue, SchemaValueKind, decode_schema_value, validate_document};
+use crate::store::reference::{SchemaCollectionReferences, SchemaReferenceWritePlan};
+use crate::store::{
+    DocumentVersion, MfsStore, RawKey, RawValue, ReadOptions, StoreError, StoreResult,
+    schema_document_raw_key,
+};
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -474,10 +474,7 @@ impl SchemaCollectionIndexes {
     }
 }
 
-pub(crate) fn decode_schema_raw_value(
-    schema: &Schema,
-    raw: &RawValue,
-) -> StoreResult<SchemaValue> {
+pub(crate) fn decode_schema_raw_value(schema: &Schema, raw: &RawValue) -> StoreResult<SchemaValue> {
     let document =
         decode_schema_value(raw.as_bytes()).map_err(|error| StoreError::SchemaDecode {
             collection: schema.name.clone(),

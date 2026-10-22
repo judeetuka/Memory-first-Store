@@ -2,11 +2,9 @@
 //!
 //! Run with `cargo run -p mfs-store --release --example nosql_query`.
 
-use mfs_store::store::{
-    FieldUpdate, FieldUpdateOp, MfsStore, ReadOptions, WriteOptions,
-};
 use mfs_store::schema::{Schema, SchemaField, SchemaFieldType};
 use mfs_store::schema_value::SchemaValue;
+use mfs_store::store::{FieldUpdate, FieldUpdateOp, MfsStore, ReadOptions, WriteOptions};
 
 fn users_schema() -> Schema {
     let mut id = SchemaField::new("id", SchemaFieldType::String);
@@ -55,7 +53,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ("u7", "Gus", 29),
     ];
     for (id, name, age) in &users {
-        let _result = engine.put_schema(&schema, user_document(id, name, *age), WriteOptions::default())?;
+        let _result = engine.put_schema(
+            &schema,
+            user_document(id, name, *age),
+            WriteOptions::default(),
+        )?;
         println!("put {id}");
     }
     println!();
@@ -75,38 +77,65 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     ];
     let batch = engine.multi_get_schema(&schema, &keys, ReadOptions::default())?;
     for doc in &batch {
-        println!("  found id={} name={} v{}",
+        println!(
+            "  found id={} name={} v{}",
             string_field(&doc.document, "id"),
             string_field(&doc.document, "name"),
-            doc.version.get());
+            doc.version.get()
+        );
     }
     println!("  requested 4 keys, got {} documents\n", batch.len());
 
     // 3. update_schema: $set and $inc.
     println!("--- update_schema: set name, increment age ---");
-    let before = engine.get_schema(&schema, &SchemaValue::String("u2".to_string()), ReadOptions::default())?
+    let before = engine
+        .get_schema(
+            &schema,
+            &SchemaValue::String("u2".to_string()),
+            ReadOptions::default(),
+        )?
         .expect("u2 exists");
-    println!("  before: id={} name={} age={:?} v{}",
+    println!(
+        "  before: id={} name={} age={:?} v{}",
         string_field(&before.document, "id"),
         string_field(&before.document, "name"),
         before.document.field("age"),
-        before.version.get());
+        before.version.get()
+    );
 
     let updates = FieldUpdateOp {
         updates: vec![
-            FieldUpdate::Set { field: "name".into(), value: SchemaValue::String("Bobby".to_string()) },
-            FieldUpdate::Increment { field: "age".into(), delta: 1 },
+            FieldUpdate::Set {
+                field: "name".into(),
+                value: SchemaValue::String("Bobby".to_string()),
+            },
+            FieldUpdate::Increment {
+                field: "age".into(),
+                delta: 1,
+            },
         ],
     };
-    engine.update_schema(&schema, &SchemaValue::String("u2".to_string()), updates, WriteOptions::default())?;
+    engine.update_schema(
+        &schema,
+        &SchemaValue::String("u2".to_string()),
+        updates,
+        WriteOptions::default(),
+    )?;
 
-    let after = engine.get_schema(&schema, &SchemaValue::String("u2".to_string()), ReadOptions::default())?
+    let after = engine
+        .get_schema(
+            &schema,
+            &SchemaValue::String("u2".to_string()),
+            ReadOptions::default(),
+        )?
         .expect("u2 exists after update");
-    println!("  after:  id={} name={} age={:?} v{}",
+    println!(
+        "  after:  id={} name={} age={:?} v{}",
         string_field(&after.document, "id"),
         string_field(&after.document, "name"),
         after.document.field("age"),
-        after.version.get());
+        after.version.get()
+    );
 
     Ok(())
 }

@@ -45,12 +45,11 @@ impl Hasher for FastHasher {
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
         let mut hash = self.0;
-        let mut chunks = bytes.chunks_exact(8);
-        for chunk in &mut chunks {
-            let word = u64::from_ne_bytes(chunk.try_into().expect("8-byte chunk"));
+        let (chunks, remainder) = bytes.as_chunks::<8>();
+        for chunk in chunks {
+            let word = u64::from_ne_bytes(*chunk);
             hash = mix(hash, word);
         }
-        let remainder = chunks.remainder();
         if !remainder.is_empty() {
             let mut tail = [0u8; 8];
             tail[..remainder.len()].copy_from_slice(remainder);

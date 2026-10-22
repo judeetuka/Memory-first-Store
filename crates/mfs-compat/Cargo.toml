@@ -15,9 +15,9 @@ mfs-store = { path = "../mfs-store" }
 parking_lot.workspace = true
 hashbrown.workspace = true
 crossbeam-utils.workspace = true
+rusqlite.workspace = true
 
 [dev-dependencies]
-rusqlite.workspace = true
 redb.workspace = true
 fjall.workspace = true
 
@@ -32,6 +32,10 @@ path = "../../examples/compat/mfs_database.rs"
 [[example]]
 name = "schema_sqlite_flush"
 path = "../../examples/compat/schema_sqlite_flush.rs"
+
+[[example]]
+name = "flush_hot_path_cost"
+path = "../../examples/compat/flush_hot_path_cost.rs"
 
 [[example]]
 name = "sqlite_vfs_page_adapter"

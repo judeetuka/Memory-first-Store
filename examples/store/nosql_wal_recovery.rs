@@ -3,7 +3,7 @@
 //! Run with `cargo run -p mfs-store --release --example nosql_wal_recovery`.
 
 use mfs_store::store::{
-    DocumentVersion, MfsStoreConfig, Lsn, MfsStore, RawKey, RawValue, RawWalSegmentWriter,
+    DocumentVersion, Lsn, MfsStore, MfsStoreConfig, RawKey, RawValue, RawWalSegmentWriter,
     ReadOptions, replay_raw_wal,
 };
 

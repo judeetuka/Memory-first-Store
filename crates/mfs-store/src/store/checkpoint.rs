@@ -1,7 +1,7 @@
-use crate::store::raw::{RawCollectionSnapshot, RawStoreSnapshot, RawSnapshotRecord};
+use crate::store::raw::{RawCollectionSnapshot, RawSnapshotRecord, RawStoreSnapshot};
 use crate::store::{
-    CheckpointCorruptionKind, DocumentVersion, MfsStoreConfig, StoreError, StoreResult, Lsn,
-    MfsStore, RawKey, RawValue, RawWalReplayStats, replay_raw_wal_after,
+    CheckpointCorruptionKind, DocumentVersion, Lsn, MfsStore, MfsStoreConfig, RawKey, RawValue,
+    RawWalReplayStats, StoreError, StoreResult, replay_raw_wal_after,
 };
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};

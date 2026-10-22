@@ -1,5 +1,5 @@
 use mfs_store::store::{
-    DurabilityMode, MfsStoreConfig, Lsn, MfsStore, RawKey, RawValue, ReadOptions, WriteOptions,
+    DurabilityMode, Lsn, MfsStore, MfsStoreConfig, RawKey, RawValue, ReadOptions, WriteOptions,
 };
 use redb::{
     Database as RedbDatabase, Durability as RedbDurability, ReadableDatabase, TableDefinition,

@@ -1,14 +1,12 @@
-use crate::store::index::{
-    SchemaCollectionIndexes, SchemaIndexWritePlan, decode_schema_raw_value,
-};
-use crate::store::{
-    CollectionId, DocumentVersion, StoreError, StoreResult, FieldUpdate, FieldUpdateOp,
-    MfsStore, RawKey, RawValue, ReadOptions, WriteOptions, WriteResult,
-};
 use crate::schema::{Schema, SchemaField, SchemaFieldType};
 use crate::schema_value::{
     SchemaValue, SchemaValueError, SchemaValueKind, decode_schema_value, encode_schema_value,
     validate_document,
+};
+use crate::store::index::{SchemaCollectionIndexes, SchemaIndexWritePlan, decode_schema_raw_value};
+use crate::store::{
+    CollectionId, DocumentVersion, FieldUpdate, FieldUpdateOp, MfsStore, RawKey, RawValue,
+    ReadOptions, StoreError, StoreResult, WriteOptions, WriteResult,
 };
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -196,12 +194,11 @@ impl MfsStore {
 
             let mut encoded = Vec::new();
             encode_schema_value(&current.document, &mut encoded);
-            let mut mutated = decode_schema_value(&encoded).map_err(|e| {
-                StoreError::SchemaDecode {
+            let mut mutated =
+                decode_schema_value(&encoded).map_err(|e| StoreError::SchemaDecode {
                     collection: schema.name.clone(),
                     message: e.to_string(),
-                }
-            })?;
+                })?;
 
             let primary_field =
                 schema
@@ -240,11 +237,9 @@ impl MfsStore {
                 }
             }
 
-            validate_document(schema, &mutated).map_err(|error| {
-                StoreError::SchemaDocument {
-                    collection: schema.name.clone(),
-                    error,
-                }
+            validate_document(schema, &mutated).map_err(|error| StoreError::SchemaDocument {
+                collection: schema.name.clone(),
+                error,
             })?;
 
             match self.put_schema(
@@ -272,7 +267,6 @@ impl MfsStore {
         }
     }
 }
-
 
 pub fn schema_document_raw_key(schema: &Schema, document: &SchemaValue) -> StoreResult<RawKey> {
     validate_schema(schema)?;
@@ -376,11 +370,7 @@ fn encode_key_bytes(tag: u8, bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-fn primary_key_mismatch(
-    schema: &Schema,
-    primary: &SchemaField,
-    value: &SchemaValue,
-) -> StoreError {
+fn primary_key_mismatch(schema: &Schema, primary: &SchemaField, value: &SchemaValue) -> StoreError {
     StoreError::SchemaPrimaryKeyTypeMismatch {
         collection: schema.name.clone(),
         field: primary.name.clone(),
@@ -418,13 +408,11 @@ fn map_increment_error(field: &str, err: &SchemaValueError) -> StoreError {
         }
     } else if msg.contains("incrementable") || msg.contains("NotIncrementable") {
         match err {
-            SchemaValueError::NotIncrementable { actual, .. } => {
-                StoreError::UpdateTypeMismatch {
-                    field: field.to_string(),
-                    expected: "numeric",
-                    actual: *actual,
-                }
-            }
+            SchemaValueError::NotIncrementable { actual, .. } => StoreError::UpdateTypeMismatch {
+                field: field.to_string(),
+                expected: "numeric",
+                actual: *actual,
+            },
             _ => StoreError::UpdateTypeMismatch {
                 field: field.to_string(),
                 expected: "numeric",

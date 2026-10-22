@@ -363,4 +363,6 @@ for storage in `mfs_key`.
 - [Object Store](object-store.md) for untyped Redis-like storage.
 - [Mutable Object Store](mutable-object-store.md) for growable storage with TTL.
 - [SQLite VFS](sqlite-vfs.md) for the page-level SQLite adapter.
+- [SQLite Flush](sqlite-flush.md) for the concrete flush backend that executes
+  this planner's SQL, and the background worker that drives it.
 - [mfs-store: Schema](../db/overview.md) for schema definition types.

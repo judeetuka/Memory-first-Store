@@ -4,19 +4,18 @@ pub use mfs_compat::{object_store, page_store, page_vfs, schema_flush, schema_st
 pub use mfs_core::{
     CPU_FALLBACK_PATH, CpuDispatchPath, CpuFeatures, DENSE_VALUE_MAX, DenseU64Lane,
     FastBuildHasher, FastHasher, FlushBackend, FlushRecord, MemoryFirstStore, Operation,
-    StoreConfig, StoreStats, auto_thread_count, avx2_supported, avx512_supported,
-    bounded_reclaim, concurrent_map, cpu_relax, durability, inline_map, lockfree, prefetch_read,
-    prefetch_write, s3fifo, sse42_supported, writeback,
+    StoreConfig, StoreStats, auto_thread_count, avx2_supported, avx512_supported, bounded_reclaim,
+    concurrent_map, cpu_relax, durability, inline_map, lockfree, prefetch_read, prefetch_write,
+    s3fifo, sse42_supported, writeback,
 };
 #[cfg(feature = "experimental")]
 pub use mfs_core::{atomic_writeback, slot_writeback};
-pub use mfs_store::{store, schema, schema_value, value};
-pub use mfs_neural::{
-    bucketed_index, dense_kv, dense_writeback_map, inline_handle_index,
-    queued_dense_writeback,
-};
 #[cfg(feature = "experimental")]
 pub use mfs_neural::dense_writeback;
+pub use mfs_neural::{
+    bucketed_index, dense_kv, dense_writeback_map, inline_handle_index, queued_dense_writeback,
+};
+pub use mfs_store::{schema, schema_value, store, value};
 
 #[cfg(feature = "ahash")]
 pub use mfs_core::AHashState;
@@ -49,10 +48,10 @@ pub use mfs_store::{
     SchemaForwardReferenceInclude, SchemaLookupResult, SchemaReadResult,
     SchemaReverseReferenceInclude, SchemaValue, SchemaValueCodec, SchemaValueError,
     SchemaValueKind, SchemaValueTag, SortedSetEntry, StoreError, StoreMode, StoreNonGoal,
-    StoreResult, StoreScope, StoreSemantics, StreamEntry, StreamId, V1_STORE_SEMANTICS,
-    ValueTag, WalCorruptionKind, WriteAcknowledgement, WriteAtomicity, WriteConflictPolicy,
-    WriteOptions, WriteResult, decode_schema_value, decode_value, encode_schema_value,
-    encode_value, load_latest_raw_checkpoint, raw_checkpoint_path, read_raw_checkpoint_metadata,
+    StoreResult, StoreScope, StoreSemantics, StreamEntry, StreamId, V1_STORE_SEMANTICS, ValueTag,
+    WalCorruptionKind, WriteAcknowledgement, WriteAtomicity, WriteConflictPolicy, WriteOptions,
+    WriteResult, decode_schema_value, decode_value, encode_schema_value, encode_value,
+    load_latest_raw_checkpoint, raw_checkpoint_path, read_raw_checkpoint_metadata,
     recover_raw_checkpoint_then_wal, replay_raw_wal, replay_raw_wal_after, schema_document_raw_key,
     schema_primary_key_raw_key, validate_codec_safe, validate_document, write_raw_checkpoint,
     write_raw_checkpoint_to_dir,
@@ -77,7 +76,6 @@ pub use mfs_neural::queued_dense_writeback::{
 fn facade_imports_compile() {
     use crate::dense_kv::DenseKvMap;
     use crate::durability::{U64Codec, WalConfig};
-    use crate::store::{MfsStore, MfsStoreConfig, RawKey, RawValue};
     use crate::object_store::MfsObjectStore;
     use crate::page_store::{InMemoryPageStore, MfsPageStore};
     use crate::page_vfs::MfsPageVfs;
@@ -85,6 +83,7 @@ fn facade_imports_compile() {
     use crate::schema_flush::quote_ident;
     use crate::schema_store::SchemaStore;
     use crate::schema_value::SchemaValue;
+    use crate::store::{MfsStore, MfsStoreConfig, RawKey, RawValue};
     use crate::value::{MfsValue, decode_value, encode_value};
     use crate::writeback::{WriteBehindCache, WriteBehindConfig};
     use crate::{

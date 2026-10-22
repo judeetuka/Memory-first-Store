@@ -87,11 +87,14 @@ fn parse_wet_gz(path: &str) -> std::io::Result<Vec<WetRecord>> {
 
         // Read content body
         let mut content = vec![0u8; content_length];
-        if content_length > 0 {
-            if let Err(e) = reader.read_exact(&mut content) {
-                eprintln!("  [warn] truncated record (content_length={}): {e}", content_length);
-                break;
-            }
+        if content_length > 0
+            && let Err(e) = reader.read_exact(&mut content)
+        {
+            eprintln!(
+                "  [warn] truncated record (content_length={}): {e}",
+                content_length
+            );
+            break;
         }
 
         // Only keep conversion records with actual content
@@ -124,7 +127,9 @@ fn format_duration(d: std::time::Duration) -> String {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: cargo run -p mfs-store --release --example cc_wet_extract -- <data_dir> [output_file]");
+        eprintln!(
+            "Usage: cargo run -p mfs-store --release --example cc_wet_extract -- <data_dir> [output_file]"
+        );
         eprintln!();
         eprintln!("Extracts URL→content pairs from Common Crawl WET files into JSON Lines.");
         eprintln!("If no output_file is given, writes to stdout.");
@@ -167,9 +172,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (i, path) in wet_files.iter().enumerate() {
         let path_str = path.to_string_lossy();
         let file_start = Instant::now();
-        eprintln!("[{}/{}] parsing {} ...",
-            i + 1, wet_files.len(),
-            path.file_name().unwrap().to_string_lossy());
+        eprintln!(
+            "[{}/{}] parsing {} ...",
+            i + 1,
+            wet_files.len(),
+            path.file_name().unwrap().to_string_lossy()
+        );
 
         let records = parse_wet_gz(&path_str)?;
 
@@ -177,7 +185,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut file_bytes = 0u64;
         for rec in &records {
             file_bytes += rec.content.len() as u64;
-            writeln!(writer,
+            writeln!(
+                writer,
                 "{{\"url\":{url},\"content\":{content}}}",
                 url = serde_json::to_string(&rec.url)?,
                 content = serde_json::to_string(&std::str::from_utf8(&rec.content).unwrap_or(""))?,
@@ -186,7 +195,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         total_bytes += file_bytes;
 
         let elapsed = file_start.elapsed();
-        eprintln!("  → {} records, {:.1} MB in {} ({:.0} rec/s)",
+        eprintln!(
+            "  → {} records, {:.1} MB in {} ({:.0} rec/s)",
             records.len(),
             file_bytes as f64 / 1_048_576.0,
             format_duration(elapsed),
@@ -199,7 +209,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let total_elapsed = total_start.elapsed();
     eprintln!();
-    eprintln!("Done: {total_records} records, {:.1} MB total ({:.0} rec/s)",
+    eprintln!(
+        "Done: {total_records} records, {:.1} MB total ({:.0} rec/s)",
         total_bytes as f64 / 1_048_576.0,
         total_records as f64 / total_elapsed.as_secs_f64(),
     );

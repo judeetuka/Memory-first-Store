@@ -1,134 +1,71 @@
-use mfs_compat::schema_flush::{
-    SchemaFlushBackend, SchemaFlushError, SchemaFlushRecord, SqlValue, delete_sql, delete_values,
-    ensure_schema_sql, upsert_sql, upsert_values,
-};
-use mfs_compat::schema_store::{SchemaKey, SchemaStore};
-use mfs_core::{FlushBackend, FlushRecord, Operation};
+//! Flush the hot layer into a durable, queryable SQLite copy.
+//!
+//! The hot layer answers reads from memory and owns its own WAL. This example
+//! mirrors the same writes into a SQLite file, in the background, so a report,
+//! an ad-hoc `sqlite3` session, or a second process can query them.
+//!
+//! The shape is always the same:
+//!
+//! 1. `SqliteFlushBackend::open` owns the write connection.
+//! 2. `ensure_schema` once per collection, before anything is queued.
+//! 3. `FlushWorker::spawn` starts the background writer.
+//! 4. Every hot write becomes a `SchemaFlushRecord` and is enqueued.
+//! 5. `barrier` before reading, if the read must see everything.
+//! 6. `shutdown` drains the queue and stops the worker.
+
+use mfs_compat::flush_worker::{FlushConfig, FlushWorker};
+use mfs_compat::schema_flush::SchemaFlushRecord;
+use mfs_compat::schema_flush_sqlite::SqliteFlushBackend;
 use mfs_store::schema::{Reference, Schema, SchemaField, SchemaFieldType};
 use mfs_store::schema_value::SchemaValue;
-use rusqlite::types::Value;
-use rusqlite::{Connection, params_from_iter};
-use std::collections::HashMap;
+use mfs_store::{DurabilityMode, MfsStore, MfsStoreConfig, ReadOptions, WriteOptions};
+use parking_lot::Mutex;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
-enum SqliteFlushError {
-    Sqlite(rusqlite::Error),
-    Schema(SchemaFlushError),
-    MissingSchema(String),
+enum ExampleError {
+    Sqlite(mfs_compat::schema_flush_sqlite::SqliteFlushError),
+    Flush(mfs_compat::flush_worker::FlushWorkerError),
+    Store(mfs_store::StoreError),
+    Schema(mfs_compat::schema_flush::SchemaFlushError),
 }
 
-struct SqliteSchemaFlush {
-    conn: Connection,
-    schemas: HashMap<String, Schema>,
+impl std::fmt::Display for ExampleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sqlite(error) => write!(f, "sqlite: {error}"),
+            Self::Flush(error) => write!(f, "flush: {error}"),
+            Self::Store(error) => write!(f, "store: {error}"),
+            Self::Schema(error) => write!(f, "schema: {error}"),
+        }
+    }
 }
 
-struct CollectionFlush<'a> {
-    inner: &'a mut SqliteSchemaFlush,
-    collection: &'static str,
-}
+impl std::error::Error for ExampleError {}
 
-impl From<rusqlite::Error> for SqliteFlushError {
-    fn from(error: rusqlite::Error) -> Self {
+impl From<mfs_compat::schema_flush_sqlite::SqliteFlushError> for ExampleError {
+    fn from(error: mfs_compat::schema_flush_sqlite::SqliteFlushError) -> Self {
         Self::Sqlite(error)
     }
 }
 
-impl From<SchemaFlushError> for SqliteFlushError {
-    fn from(error: SchemaFlushError) -> Self {
+impl From<mfs_compat::flush_worker::FlushWorkerError> for ExampleError {
+    fn from(error: mfs_compat::flush_worker::FlushWorkerError) -> Self {
+        Self::Flush(error)
+    }
+}
+
+impl From<mfs_store::StoreError> for ExampleError {
+    fn from(error: mfs_store::StoreError) -> Self {
+        Self::Store(error)
+    }
+}
+
+impl From<mfs_compat::schema_flush::SchemaFlushError> for ExampleError {
+    fn from(error: mfs_compat::schema_flush::SchemaFlushError) -> Self {
         Self::Schema(error)
-    }
-}
-
-impl std::fmt::Display for SqliteFlushError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Sqlite(error) => write!(f, "sqlite error: {error}"),
-            Self::Schema(error) => write!(f, "schema flush error: {error}"),
-            Self::MissingSchema(collection) => write!(f, "missing schema `{collection}`"),
-        }
-    }
-}
-
-impl std::error::Error for SqliteFlushError {}
-
-impl SqliteSchemaFlush {
-    fn open_in_memory() -> Result<Self, SqliteFlushError> {
-        let conn = Connection::open_in_memory()?;
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        Ok(Self {
-            conn,
-            schemas: HashMap::new(),
-        })
-    }
-
-    fn collection<'a>(&'a mut self, collection: &'static str) -> CollectionFlush<'a> {
-        CollectionFlush {
-            inner: self,
-            collection,
-        }
-    }
-}
-
-impl SchemaFlushBackend for SqliteSchemaFlush {
-    type Error = SqliteFlushError;
-
-    fn ensure_schema(&mut self, schema: &Schema) -> Result<(), Self::Error> {
-        for sql in ensure_schema_sql(schema)? {
-            self.conn.execute_batch(&sql)?;
-        }
-        self.schemas.insert(schema.name.clone(), schema.clone());
-        Ok(())
-    }
-
-    fn flush_records(&mut self, batch: &[SchemaFlushRecord]) -> Result<(), Self::Error> {
-        let mut statements = Vec::with_capacity(batch.len());
-        for record in batch {
-            let schema = self
-                .schemas
-                .get(&record.collection)
-                .ok_or_else(|| SqliteFlushError::MissingSchema(record.collection.clone()))?;
-            match record.op {
-                Operation::Put => {
-                    statements.push((upsert_sql(schema)?, upsert_values(schema, record)?));
-                }
-                Operation::Delete => {
-                    statements.push((delete_sql(schema)?, delete_values(record)?));
-                }
-            }
-        }
-
-        let tx = self.conn.transaction()?;
-        for (sql, values) in statements {
-            let params = values.into_iter().map(sql_value).collect::<Vec<_>>();
-            tx.execute(&sql, params_from_iter(params.iter()))?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-}
-
-impl FlushBackend<SchemaKey, SchemaValue> for CollectionFlush<'_> {
-    type Error = SqliteFlushError;
-
-    fn flush(
-        &mut self,
-        records: &[FlushRecord<SchemaKey, SchemaValue>],
-    ) -> Result<(), Self::Error> {
-        let records = records
-            .iter()
-            .map(|record| SchemaFlushRecord::from_flush_record(self.collection, record))
-            .collect::<Vec<_>>();
-        self.inner.flush_records(&records)
-    }
-}
-
-fn sql_value(value: SqlValue) -> Value {
-    match value {
-        SqlValue::Null => Value::Null,
-        SqlValue::Integer(value) => Value::Integer(value),
-        SqlValue::Real(value) => Value::Real(value),
-        SqlValue::Text(value) => Value::Text(value),
-        SqlValue::Blob(value) => Value::Blob(value),
     }
 }
 
@@ -176,95 +113,165 @@ fn user(id: &str, email: &str, company_id: &str, created_at: i64) -> SchemaValue
     ])
 }
 
-fn run_demo() -> Result<(), SqliteFlushError> {
-    let store = SchemaStore::new();
+/// A throwaway directory, so the example does not litter the tree.
+fn scratch_dir() -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_nanos();
+    let path =
+        std::env::temp_dir().join(format!("mfs-flush-example-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&path).expect("create scratch directory");
+    path
+}
+
+/// Write one document to the hot layer and return the record for the copy.
+///
+/// The LSN is the store-wide WAL LSN, not a per-document version: the copy's
+/// watermark is store-wide, so a per-document number would make it lie.
+fn write_and_enqueue(
+    store: &MfsStore,
+    schema: &Schema,
+    document: SchemaValue,
+    worker: &FlushWorker<SqliteFlushBackend>,
+) -> Result<Vec<u8>, ExampleError> {
+    let primary = document
+        .field(&schema.primary_field().expect("primary field").name)
+        .expect("primary value")
+        .clone();
+    let result = store.put_schema(schema, document.clone(), WriteOptions::default())?;
+    let lsn = result.lsn.expect("wal lsn").get();
+    let record = SchemaFlushRecord::from_schema_write(
+        schema.name.clone(),
+        schema,
+        &primary,
+        Some(document),
+        lsn,
+    )?;
+    let key = record.key.clone();
+    worker.enqueue(record)?;
+    Ok(key)
+}
+
+fn run_demo() -> Result<(), ExampleError> {
+    let scratch = scratch_dir();
     let companies = companies_schema();
     let users = users_schema();
-    store.register_collection(companies.clone()).unwrap();
-    store.register_collection(users.clone()).unwrap();
 
-    let mut sqlite = SqliteSchemaFlush::open_in_memory()?;
-    sqlite.ensure_schema(&companies)?;
-    sqlite.ensure_schema(&users)?;
+    // The hot layer. It owns its own WAL and answers reads from memory; the
+    // SQLite copy below is a separate durability domain.
+    let config = MfsStoreConfig::default()
+        .with_durability(DurabilityMode::WalAsync)
+        .with_wal_path(scratch.join("hot.wal"));
+    let store = MfsStore::open_memory(config)?;
+    store.create_schema_collection(&companies)?;
+    store.create_schema_collection(&users)?;
 
-    store.create("companies", company("c1", "Acme")).unwrap();
-    store
-        .create("users", user("u1", "ada@example.com", "c1", 10))
-        .unwrap();
-
+    // The copy. One connection, one writer, WAL + synchronous NORMAL.
+    let backend = Arc::new(Mutex::new(SqliteFlushBackend::open(
+        &scratch.join("query.db"),
+    )?));
     {
-        let mut backend = sqlite.collection("companies");
-        store
-            .flush_collection_idle("companies", &mut backend, 0, 16)
-            .unwrap();
-    }
-    {
-        let mut backend = sqlite.collection("users");
-        store
-            .flush_collection_idle("users", &mut backend, 0, 16)
-            .unwrap();
+        let mut guard = backend.lock();
+        guard.ensure_schema(&companies)?;
+        guard.ensure_schema(&users)?;
     }
 
-    let joined: (String, String) = sqlite.conn.query_row(
-        "SELECT users.email, companies.name \
-         FROM users JOIN companies ON users.company_id = companies.id \
-         WHERE users.id = 'u1'",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+    let worker = FlushWorker::spawn_with_config(
+        Arc::clone(&backend),
+        FlushConfig {
+            batch_max: 500,
+            interval: Duration::from_millis(250),
+            backoff_max: Duration::from_secs(30),
+            barrier_timeout: Duration::from_secs(10),
+        },
     )?;
-    assert_eq!(joined, ("ada@example.com".to_string(), "Acme".to_string()));
 
-    let key = SchemaKey::String("u1".to_string()).encoded();
-    sqlite.flush_records(&[SchemaFlushRecord {
-        collection: "users".to_string(),
-        key: key.clone(),
-        op: Operation::Put,
-        document: Some(user("u1", "stale@example.com", "c1", 9)),
-        lsn: 1,
-    }])?;
-    let email: String =
-        sqlite
-            .conn
-            .query_row("SELECT email FROM users WHERE id = 'u1'", [], |row| {
-                row.get(0)
-            })?;
-    assert_eq!(email, "ada@example.com");
+    let company_key = write_and_enqueue(&store, &companies, company("c1", "Acme"), &worker)?;
+    let user_key = write_and_enqueue(
+        &store,
+        &users,
+        user("u1", "ada@example.com", "c1", 10),
+        &worker,
+    )?;
 
-    sqlite.flush_records(&[SchemaFlushRecord {
-        collection: "users".to_string(),
-        key: key.clone(),
-        op: Operation::Put,
-        document: Some(user("u1", "fresh@example.com", "c1", 11)),
-        lsn: 100,
-    }])?;
-    let email: String =
-        sqlite
-            .conn
-            .query_row("SELECT email FROM users WHERE id = 'u1'", [], |row| {
-                row.get(0)
-            })?;
-    assert_eq!(email, "fresh@example.com");
+    // The hot reads are answered from memory and never touch SQLite.
+    let from_hot = store
+        .get_schema(
+            &users,
+            &SchemaValue::String("u1".to_string()),
+            ReadOptions::default(),
+        )?
+        .expect("user in hot layer")
+        .document;
+    assert_eq!(
+        from_hot.field("email"),
+        Some(&SchemaValue::String("ada@example.com".to_string()))
+    );
 
-    sqlite.flush_records(&[SchemaFlushRecord {
-        collection: "users".to_string(),
-        key,
-        op: Operation::Delete,
-        document: None,
-        lsn: 101,
-    }])?;
-    let count: i64 =
-        sqlite
-            .conn
-            .query_row("SELECT COUNT(*) FROM users WHERE id = 'u1'", [], |row| {
-                row.get(0)
-            })?;
-    assert_eq!(count, 0);
+    // A barrier is answered only after everything queued before it committed.
+    worker.barrier()?;
 
+    {
+        let guard = backend.lock();
+        let watermark = guard.lsn_watermark()?;
+        println!("copy watermark: LSN {watermark}");
+
+        // A join, which is the whole point of a query copy. The typed columns
+        // let SQL correlate the two tables without decoding a document.
+        let joined: Vec<String> = guard.query_values(
+            "SELECT u.email || ' @ ' || c.name FROM users u \
+             JOIN companies c ON u.company_id = c.id WHERE u.id = 'u1'",
+            &[],
+        )?;
+        assert_eq!(joined, vec!["ada@example.com @ Acme".to_string()]);
+
+        // The document round-trips through the store's own codec.
+        let stored = guard
+            .document_by_key("users", &user_key)?
+            .expect("user in copy");
+        assert_eq!(stored, from_hot);
+
+        // Typed columns, so SQL can filter without decoding the whole document.
+        let emails: Vec<String> = guard.query_values("SELECT email FROM users", &[])?;
+        assert_eq!(emails, vec!["ada@example.com".to_string()]);
+    }
+
+    // A delete leaves the copy, not just the hot layer.
+    let deleted = store.delete_schema(
+        &users,
+        &SchemaValue::String("u1".to_string()),
+        WriteOptions::default(),
+    )?;
+    let delete_record = SchemaFlushRecord::from_schema_write(
+        "users",
+        &users,
+        &SchemaValue::String("u1".to_string()),
+        None,
+        deleted.lsn.expect("wal lsn").get(),
+    )?;
+    worker.enqueue(delete_record)?;
+    worker.barrier()?;
+
+    {
+        let guard = backend.lock();
+        assert!(
+            guard.flushed_row("users", &user_key)?.is_none(),
+            "a deleted document must not survive in the copy"
+        );
+        assert!(
+            guard.flushed_row("companies", &company_key)?.is_some(),
+            "the company row must still be there"
+        );
+    }
+
+    // Drain the queue and stop the worker. Only now may the copy fall behind.
+    worker.shutdown()?;
+    println!("schema SQLite flush example completed");
     Ok(())
 }
 
-fn main() -> Result<(), SqliteFlushError> {
+fn main() -> Result<(), ExampleError> {
     run_demo()?;
-    println!("schema SQLite flush example completed");
     Ok(())
 }

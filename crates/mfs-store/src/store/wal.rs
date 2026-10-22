@@ -1,5 +1,5 @@
 use crate::store::{
-    DocumentVersion, StoreError, StoreResult, Lsn, MfsStore, RawKey, RawValue, ReadOptions,
+    DocumentVersion, Lsn, MfsStore, RawKey, RawValue, ReadOptions, StoreError, StoreResult,
     WalCorruptionKind,
 };
 use mfs_core::Operation;
@@ -285,10 +285,7 @@ impl RawWalSegmentReader {
     }
 }
 
-pub fn replay_raw_wal(
-    path: impl AsRef<Path>,
-    engine: &MfsStore,
-) -> StoreResult<RawWalReplayStats> {
+pub fn replay_raw_wal(path: impl AsRef<Path>, engine: &MfsStore) -> StoreResult<RawWalReplayStats> {
     RawWalSegmentReader::replay_into(path, engine)
 }
 
@@ -792,7 +789,11 @@ mod tests {
             put(&store, "items", b"beta", b"only");
             put(&store, "items", b"gamma", b"temp");
             store
-                .delete_raw("items", RawKey::from(&b"gamma"[..]), WriteOptions::default())
+                .delete_raw(
+                    "items",
+                    RawKey::from(&b"gamma"[..]),
+                    WriteOptions::default(),
+                )
                 .expect("delete_raw");
             store.sync_wal().expect("sync_wal");
 

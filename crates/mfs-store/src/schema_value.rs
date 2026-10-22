@@ -164,15 +164,11 @@ impl SchemaValue {
     }
 
     /// Set a field by dot-separated path, creating intermediate objects as needed.
-    pub fn set_field(
-        &mut self,
-        path: &str,
-        value: SchemaValue,
-    ) -> Result<(), SchemaValueError> {
+    pub fn set_field(&mut self, path: &str, value: SchemaValue) -> Result<(), SchemaValueError> {
         let kind = self.kind();
-        let obj = self.as_object_mut().ok_or(
-            SchemaValueError::RootMustBeObject { actual: kind },
-        )?;
+        let obj = self
+            .as_object_mut()
+            .ok_or(SchemaValueError::RootMustBeObject { actual: kind })?;
         set_field_impl(obj, path, value)
     }
 
@@ -192,15 +188,11 @@ impl SchemaValue {
     /// If the field does not exist it is created as `Int64(delta)`.
     /// Returns an error if the field exists but is non-numeric, or the
     /// increment would overflow.
-    pub fn apply_increment(
-        &mut self,
-        path: &str,
-        delta: i64,
-    ) -> Result<(), SchemaValueError> {
+    pub fn apply_increment(&mut self, path: &str, delta: i64) -> Result<(), SchemaValueError> {
         let kind = self.kind();
-        let obj = self.as_object_mut().ok_or(
-            SchemaValueError::RootMustBeObject { actual: kind },
-        )?;
+        let obj = self
+            .as_object_mut()
+            .ok_or(SchemaValueError::RootMustBeObject { actual: kind })?;
         apply_increment_impl(obj, path, delta)
     }
 }
@@ -461,10 +453,7 @@ impl fmt::Display for SchemaValueError {
                 "field path `{path}`: segment `{segment}` is {actual}, not an object"
             ),
             Self::NotIncrementable { path, actual } => {
-                write!(
-                    f,
-                    "field `{path}` is {actual} which is not incrementable"
-                )
+                write!(f, "field `{path}` is {actual} which is not incrementable")
             }
             Self::NumericOverflow { path } => {
                 write!(f, "numeric overflow on field `{path}`")

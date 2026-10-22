@@ -1,9 +1,10 @@
-use mfs_store::store::{
-    DocumentVersion, DurabilityMode, MfsStoreConfig, StoreError, Lsn, MfsStore, RawKey, RawValue,
-    RawWalSegmentWriter, ReadOptions, WriteOptions, replay_raw_wal, write_raw_checkpoint_to_dir,
-};
 use mfs_store::schema::{Schema, SchemaField, SchemaFieldType};
 use mfs_store::schema_value::SchemaValue;
+use mfs_store::store::{
+    DocumentVersion, DurabilityMode, Lsn, MfsStore, MfsStoreConfig, RawKey, RawValue,
+    RawWalSegmentWriter, ReadOptions, StoreError, WriteOptions, replay_raw_wal,
+    write_raw_checkpoint_to_dir,
+};
 use std::fs;
 use std::hint::black_box;
 use std::path::{Path, PathBuf};

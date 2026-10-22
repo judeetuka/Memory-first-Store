@@ -37,6 +37,13 @@ The v1 contract is frozen in `StoreSemantics` and defines what later store modul
 | Recovery | Load latest valid checkpoint, then replay WAL records after its LSN. |
 | Index consistency | Declared secondary indexes commit or roll back with the primary record. |
 
+The contract above is unchanged by the SQL flush. The flush is an addition
+outside it: `mfs-compat` mirrors committed writes into a separate SQLite file
+on a background thread. It does not change write atomicity, conflicts, read
+consistency, or recovery, and it introduces no cross-document transactions --
+the store stays single-process, single-owner, and single-writer. See
+[SQLite Flush](../compat/sqlite-flush.md).
+
 ### Non-goals
 
 v1 intentionally does not provide: SQL compatibility, network server, distributed behavior, cross-document transactions, arbitrary joins, query planner, vector/text search, full MVCC, or full ACID.
